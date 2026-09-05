@@ -1,11 +1,13 @@
 package meteordevelopment.meteorclient.systems.modules.combat;
 
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.mixininterface.IPlayerInteractEntityC2SPacket;
 import meteordevelopment.meteorclient.pathing.PathManagers;
 import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.DoubleSetting;
@@ -28,17 +30,23 @@ import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.world.TickRate;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket.ActionType;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.Wolf;
 import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.monster.ZombifiedPiglin;
+import net.minecraft.world.entity.monster.piglin.Piglin;
+import net.minecraft.world.entity.monster.piglin.PiglinAi;
+import net.minecraft.world.entity.monster.piglin.PiglinArmPose;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.ItemStack;
@@ -209,6 +217,7 @@ public class KillAura extends Module {
    private static final Predicate<ItemStack> PRED_ANY = stack -> true;
 
    private final List<Entity> targets = new ArrayList<>();
+   private final Int2LongOpenHashMap angryMobs = new Int2LongOpenHashMap();
    private final Predicate<Entity> entityCheckPredicate = this::entityCheck;
    private int switchTimer;
    private int hitTimer;
@@ -222,12 +231,22 @@ public class KillAura extends Module {
    @Override
    public void onDeactivate() {
       this.targets.clear();
+      this.angryMobs.clear();
       this.attacking = false;
    }
 
    @EventHandler
    private void onTick(TickEvent.Pre event) {
       if (this.mc.player.isAlive() && PlayerUtils.getGameMode() != GameType.SPECTATOR) {
+         if (!this.angryMobs.isEmpty()) {
+            long now = System.currentTimeMillis();
+            this.angryMobs.int2LongEntrySet().removeIf(entry -> entry.getLongValue() < now);
+         }
+
+         if (this.mc.player.getLastHurtByMob() != null) {
+            this.angryMobs.put(this.mc.player.getLastHurtByMob().getId(), System.currentTimeMillis() + 30000L);
+         }
+
          if (!this.pauseOnUse.get() || !this.mc.gameMode.isDestroying() && !this.mc.player.isUsingItem()) {
             if (!this.onlyOnClick.get() || this.mc.options.keyAttack.isDown()) {
                if (!(TickRate.INSTANCE.getTimeSinceLastTick() >= 3.0F) || !this.pauseOnLag.get()) {
@@ -305,6 +324,10 @@ public class KillAura extends Module {
       if (event.packet instanceof ServerboundSetCarriedItemPacket) {
          this.switchTimer = this.switchDelay.get();
       }
+
+      if (event.packet instanceof IPlayerInteractEntityC2SPacket packet && packet.getType() == ActionType.ATTACK) {
+         this.markEntityAndGroupAngry(packet.getEntity());
+      }
    }
 
    private boolean shouldShieldBreak() {
@@ -345,16 +368,33 @@ public class KillAura extends Module {
                }
 
                if (this.ignorePassive.get()) {
-                  if (entity instanceof EnderMan enderman && !enderman.isCreepy()) {
-                     return false;
-                  }
-
-                  if (entity instanceof ZombifiedPiglin piglin && !piglin.isAggressive()) {
-                     return false;
-                  }
-
-                  if (entity instanceof Wolf wolf && !wolf.isAggressive()) {
-                     return false;
+                  if (entity instanceof EnderMan enderman) {
+                     if (!enderman.isCreepy() && !this.isMobAngry(enderman)) {
+                        return false;
+                     }
+                  } else if (entity instanceof ZombifiedPiglin piglin) {
+                     if (!this.isMobAngry(piglin) && !piglin.isAggressive() && !piglin.isSprinting()) {
+                        return false;
+                     }
+                  } else if (entity instanceof Piglin piglin) {
+                     boolean isCalm = !this.isMobAngry(piglin)
+                        && this.isWearingGold(this.mc.player)
+                        && !piglin.isAggressive()
+                        && piglin.getArmPose() != PiglinArmPose.ATTACKING_WITH_MELEE_WEAPON
+                        && piglin.getArmPose() != PiglinArmPose.CROSSBOW_HOLD
+                        && piglin.getArmPose() != PiglinArmPose.CROSSBOW_CHARGE
+                        && !piglin.isSprinting();
+                     if (isCalm) {
+                        return false;
+                     }
+                  } else if (entity instanceof Wolf wolf) {
+                     if (!wolf.isAggressive() && !this.isMobAngry(wolf)) {
+                        return false;
+                     }
+                  } else if (entity instanceof NeutralMob) {
+                     if (!this.isMobAngry((LivingEntity) entity)) {
+                        return false;
+                     }
                   }
                }
 
@@ -426,9 +466,61 @@ public class KillAura extends Module {
          Rotations.rotate(Rotations.getYaw(target), Rotations.getPitch(target, Target.Body));
       }
 
+      this.markEntityAndGroupAngry(target);
       this.mc.gameMode.attack(this.mc.player, target);
       this.mc.player.swing(InteractionHand.MAIN_HAND);
       this.hitTimer = 0;
+   }
+
+   private void markEntityAndGroupAngry(Entity target) {
+      if (!(target instanceof LivingEntity)) return;
+
+      long expire = System.currentTimeMillis() + 30000L;
+      this.angryMobs.put(target.getId(), expire);
+      if (this.mc.level != null) {
+         if (target instanceof ZombifiedPiglin) {
+            for (Entity nearby : this.mc.level.entitiesForRendering()) {
+               if (nearby instanceof ZombifiedPiglin && nearby.distanceToSqr(target) <= 256.0) {
+                  this.angryMobs.put(nearby.getId(), expire);
+               }
+            }
+         } else if (target instanceof Piglin) {
+            for (Entity nearby : this.mc.level.entitiesForRendering()) {
+               if (nearby instanceof Piglin && nearby.distanceToSqr(target) <= 256.0) {
+                  this.angryMobs.put(nearby.getId(), expire);
+               }
+            }
+         }
+      }
+   }
+
+   private boolean isMobAngry(LivingEntity mob) {
+      if (mob == null) return false;
+
+      long angryUntil = this.angryMobs.get(mob.getId());
+      if (angryUntil > System.currentTimeMillis()) {
+         return true;
+      }
+
+      if (mob instanceof Mob m) {
+         if (m.isAggressive()) return true;
+         if (m.getTarget() != null && m.getTarget().equals(this.mc.player)) return true;
+         if (m.getLastHurtByMob() != null && m.getLastHurtByMob().equals(this.mc.player)) return true;
+      }
+
+      if (mob instanceof NeutralMob nm) {
+         if (nm.isAngry()) return true;
+         if (this.mc.player != null && nm.isAngryAt(this.mc.player)) return true;
+      }
+
+      if (mob.isSprinting()) return true;
+
+      return false;
+   }
+
+   private boolean isWearingGold(LivingEntity entity) {
+      if (entity == null) return false;
+      return PiglinAi.isWearingGold(entity);
    }
 
    private boolean itemInHand() {

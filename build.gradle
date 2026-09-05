@@ -87,6 +87,7 @@ tasks.named('jar') {
             exclude 'mixins.baritone.json'
             exclude 'baritone/command/argument/CommandArgument*.class'
             exclude 'baritone/command/argument/CommandArguments*.class'
+            exclude 'baritone/cache/ChunkPacker*.class'
         }
     }
     from {
