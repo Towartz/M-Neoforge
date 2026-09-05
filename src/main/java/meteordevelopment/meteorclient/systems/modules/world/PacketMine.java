@@ -60,15 +60,10 @@ public class PacketMine extends Module {
       .add(
          new IntSetting.Builder()
             .name("max-blocks")
-            .description("Maximum number of concurrent blocks to mine. WARNING: Values above 2-3 may trigger anti-cheat detections or rollbacks.")
+            .description("Maximum number of concurrent blocks to mine. Values above 2-3 may trigger anti-cheat detections or rollbacks.")
             .defaultValue(1)
             .min(1)
             .sliderRange(1, 10)
-            .onChanged(val -> {
-               if (val > 2) {
-                  this.warning("Max blocks set to %d. Mining more than 2-3 blocks concurrently may trigger anti-cheat kicks or rollbacks.", val);
-               }
-            })
             .build()
       );
 
@@ -196,9 +191,6 @@ public class PacketMine extends Module {
       this.combatTimer = 0;
       this.lastBrokenPos = null;
       this.lastBrokenDirection = null;
-      if (this.maxBlocks.get() > 2) {
-         this.warning("Max blocks is set to %d. Mining more than 2-3 blocks concurrently may trigger anti-cheat detections or rollbacks.", this.maxBlocks.get());
-      }
    }
 
    @Override
