@@ -14,7 +14,6 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.misc.Notebot;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.notebot.decoder.SongDecoders;
-import org.apache.commons.io.FilenameUtils;
 
 public class NotebotSongsScreen extends WindowScreen {
    private static final Notebot notebot = Modules.get().get(Notebot.class);
@@ -64,10 +63,15 @@ public class NotebotSongsScreen extends WindowScreen {
       }
    }
 
+   private static String getBaseName(String filename) {
+      int dot = filename.lastIndexOf('.');
+      return dot > 0 ? filename.substring(0, dot) : filename;
+   }
+
    private void addPath(Path path) {
       this.table.add(this.theme.horizontalSeparator()).expandX().minWidth(400.0);
       this.table.row();
-      this.table.add(this.theme.label(FilenameUtils.getBaseName(path.getFileName().toString()))).expandCellX();
+      this.table.add(this.theme.label(getBaseName(path.getFileName().toString()))).expandCellX();
       WButton load = this.table.add(this.theme.button("Load")).right().widget();
       load.action = () -> notebot.loadSong(path.toFile());
       WButton preview = this.table.add(this.theme.button("Preview")).right().widget();

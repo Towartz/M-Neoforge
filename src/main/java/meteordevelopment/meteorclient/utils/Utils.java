@@ -84,7 +84,6 @@ import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.Range;
 import org.joml.Matrix4f;
@@ -564,17 +563,12 @@ public class Utils {
    }
 
    public static byte[] readBytes(InputStream in) {
-      byte[] var2;
-      try {
-         return in.readAllBytes();
+      try (InputStream input = in) {
+         return input.readAllBytes();
       } catch (IOException var6) {
          MeteorClient.LOG.error("Error reading from stream.", var6);
-         var2 = new byte[0];
-      } finally {
-         IOUtils.closeQuietly(in);
+         return new byte[0];
       }
-
-      return var2;
    }
 
    public static boolean canUpdate() {

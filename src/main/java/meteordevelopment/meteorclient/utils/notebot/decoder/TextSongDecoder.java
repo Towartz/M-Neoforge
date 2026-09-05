@@ -8,14 +8,15 @@ import java.util.List;
 import meteordevelopment.meteorclient.utils.notebot.song.Note;
 import meteordevelopment.meteorclient.utils.notebot.song.Song;
 import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
-import org.apache.commons.io.FilenameUtils;
 
 public class TextSongDecoder extends SongDecoder {
    @Override
    public Song parse(File file) throws Exception {
       List<String> data = Files.readAllLines(file.toPath());
       Multimap<Integer, Note> notesMap = MultimapBuilder.linkedHashKeys().arrayListValues().build();
-      String title = FilenameUtils.getBaseName(file.getName());
+      String name = file.getName();
+      int dot = name.lastIndexOf('.');
+      String title = dot > 0 ? name.substring(0, dot) : name;
       String author = "Unknown";
 
       for (int lineNumber = 0; lineNumber < data.size(); lineNumber++) {

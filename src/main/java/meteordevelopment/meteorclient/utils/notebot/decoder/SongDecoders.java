@@ -12,22 +12,26 @@ import meteordevelopment.meteorclient.utils.notebot.NotebotUtils;
 import meteordevelopment.meteorclient.utils.notebot.song.Note;
 import meteordevelopment.meteorclient.utils.notebot.song.Song;
 import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
-import org.apache.commons.io.FilenameUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class SongDecoders {
    private static final Map<String, SongDecoder> decoders = new HashMap<>();
+
+   private static String getExtension(String name) {
+      int dot = name.lastIndexOf('.');
+      return dot >= 0 ? name.substring(dot + 1) : "";
+   }
 
    public static void registerDecoder(String extension, SongDecoder songDecoder) {
       decoders.put(extension, songDecoder);
    }
 
    public static SongDecoder getDecoder(File file) {
-      return decoders.get(FilenameUtils.getExtension(file.getName()));
+      return decoders.get(getExtension(file.getName()));
    }
 
    public static boolean hasDecoder(File file) {
-      return decoders.containsKey(FilenameUtils.getExtension(file.getName()));
+      return decoders.containsKey(getExtension(file.getName()));
    }
 
    public static boolean hasDecoder(Path path) {

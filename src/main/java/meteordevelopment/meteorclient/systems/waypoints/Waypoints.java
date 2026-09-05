@@ -11,13 +11,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameJoinedEvent;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.systems.System;
 import meteordevelopment.meteorclient.systems.Systems;
 import meteordevelopment.meteorclient.utils.Utils;
-import meteordevelopment.meteorclient.utils.files.StreamUtils;
 import meteordevelopment.meteorclient.utils.misc.NbtUtils;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.world.Dimension;
@@ -150,7 +151,11 @@ public class Waypoints extends System<Waypoints> implements Iterable<Waypoint> {
       if (in == null) {
          MeteorClient.LOG.error("Failed to read a resource: {}", path);
       } else {
-         StreamUtils.copy(in, file);
+         try (InputStream input = in) {
+            Files.copy(input, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+         } catch (IOException e) {
+            MeteorClient.LOG.error("Failed to copy waypoint icon: {}", file.getName(), e);
+         }
       }
    }
 

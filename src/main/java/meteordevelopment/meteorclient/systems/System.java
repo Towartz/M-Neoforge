@@ -2,16 +2,16 @@ package meteordevelopment.meteorclient.systems;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import meteordevelopment.meteorclient.MeteorClient;
-import meteordevelopment.meteorclient.utils.files.StreamUtils;
 import meteordevelopment.meteorclient.utils.misc.ISerializable;
 import net.minecraft.ReportedException;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
-import org.apache.commons.io.FilenameUtils;
 
 public abstract class System<T> implements ISerializable<T> {
    private final String name;
@@ -35,18 +35,22 @@ public abstract class System<T> implements ISerializable<T> {
       if (file != null) {
          CompoundTag tag = this.toTag();
          if (tag != null) {
+            File tempFile = null;
             try {
-               File tempFile = File.createTempFile("meteor-client", file.getName());
+               tempFile = File.createTempFile("meteor-client", file.getName());
                NbtIo.write(tag, tempFile.toPath());
                if (folder != null) {
                   file = new File(folder, file.getName());
                }
 
                file.getParentFile().mkdirs();
-               StreamUtils.copy(tempFile, file);
-               tempFile.delete();
+               Files.copy(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException var5) {
                var5.printStackTrace();
+            } finally {
+               if (tempFile != null && tempFile.exists()) {
+                  tempFile.delete();
+               }
             }
          }
       }
@@ -68,9 +72,16 @@ public abstract class System<T> implements ISerializable<T> {
                try {
                   this.fromTag(NbtIo.read(file.toPath()));
                } catch (ReportedException var6) {
-                  String backupName = FilenameUtils.removeExtension(file.getName()) + "-" + ZonedDateTime.now().format(DATE_TIME_FORMATTER) + ".backup.nbt";
+                  String name = file.getName();
+                  int dot = name.lastIndexOf('.');
+                  String baseName = dot > 0 ? name.substring(0, dot) : name;
+                  String backupName = baseName + "-" + ZonedDateTime.now().format(DATE_TIME_FORMATTER) + ".backup.nbt";
                   File backup = new File(file.getParentFile(), backupName);
-                  StreamUtils.copy(file, backup);
+                  try {
+                     Files.copy(file.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                  } catch (IOException e) {
+                     MeteorClient.LOG.error("Failed to copy settings backup: " + e.getMessage());
+                  }
                   MeteorClient.LOG.error("Error loading " + this.name + ". Possibly corrupted?");
                   MeteorClient.LOG.info("Saved settings backup to '" + backup + "'.");
                   var6.printStackTrace();

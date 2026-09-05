@@ -11,7 +11,6 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
-import org.apache.commons.io.IOUtils;
 import org.joml.Matrix4f;
 
 public class Shader {
@@ -56,7 +55,7 @@ public class Shader {
             }
             if (res.isPresent()) {
                try (InputStream in = res.get().open()) {
-                  return IOUtils.toString(in, StandardCharsets.UTF_8);
+                  return new String(in.readAllBytes(), StandardCharsets.UTF_8);
                }
             }
          }
@@ -67,7 +66,7 @@ public class Shader {
          }
          if (classIn != null) {
             try (InputStream in = classIn) {
-               return IOUtils.toString(in, StandardCharsets.UTF_8);
+               return new String(in.readAllBytes(), StandardCharsets.UTF_8);
             }
          }
 

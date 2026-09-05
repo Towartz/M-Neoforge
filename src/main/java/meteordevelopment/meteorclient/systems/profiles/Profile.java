@@ -2,6 +2,8 @@ package meteordevelopment.meteorclient.systems.profiles;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import meteordevelopment.meteorclient.settings.BoolSetting;
@@ -18,7 +20,6 @@ import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.ISerializable;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
-import org.apache.commons.io.FileUtils;
 
 public class Profile implements ISerializable<Profile> {
    public final Settings settings = new Settings();
@@ -89,10 +90,15 @@ public class Profile implements ISerializable<Profile> {
    }
 
    public void delete() {
-      try {
-         FileUtils.deleteDirectory(this.getFile());
-      } catch (IOException var2) {
-         var2.printStackTrace();
+      File file = this.getFile();
+      if (file != null && file.exists()) {
+         try (var stream = Files.walk(file.toPath())) {
+            stream.sorted(Comparator.reverseOrder())
+                  .map(java.nio.file.Path::toFile)
+                  .forEach(File::delete);
+         } catch (IOException var2) {
+            var2.printStackTrace();
+         }
       }
    }
 

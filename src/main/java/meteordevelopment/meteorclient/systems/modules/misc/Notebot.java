@@ -61,7 +61,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.io.FilenameUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
@@ -650,7 +649,10 @@ public class Notebot extends Module {
          this.error("File is in wrong format. Decoder not found.", new Object[0]);
          return false;
       } else {
-         this.info("Loading song \"%s\".", new Object[]{FilenameUtils.getBaseName(file.getName())});
+         String songFileName = file.getName();
+         int dot = songFileName.lastIndexOf('.');
+         String baseSongName = dot > 0 ? songFileName.substring(0, dot) : songFileName;
+         this.info("Loading song \"%s\".", new Object[]{baseSongName});
          this.loadingSongFuture = CompletableFuture.supplyAsync(() -> {
             try {
                return SongDecoders.parse(file);
@@ -666,7 +668,7 @@ public class Notebot extends Module {
                (song, ex) -> {
                   if (ex == null) {
                      if (song == null) {
-                        this.error("Loading song '" + FilenameUtils.getBaseName(file.getName()) + "' timed out.", new Object[0]);
+                        this.error("Loading song '" + baseSongName + "' timed out.", new Object[0]);
                         this.onSongEnd();
                         return;
                      }
@@ -674,16 +676,16 @@ public class Notebot extends Module {
                      this.song = song;
                      long time2 = System.currentTimeMillis();
                      long diff = time2 - time1;
-                     this.info("Song '" + FilenameUtils.getBaseName(file.getName()) + "' has been loaded to the memory! Took " + diff + "ms", new Object[0]);
+                     this.info("Song '" + baseSongName + "' has been loaded to the memory! Took " + diff + "ms", new Object[0]);
                      callback.run();
                   } else if (ex instanceof CancellationException) {
-                     this.error("Loading song '" + FilenameUtils.getBaseName(file.getName()) + "' was cancelled.", new Object[0]);
+                     this.error("Loading song '" + baseSongName + "' was cancelled.", new Object[0]);
                   } else {
                      this.error(
-                        "An error occurred while loading song '" + FilenameUtils.getBaseName(file.getName()) + "'. See the logs for more details",
+                        "An error occurred while loading song '" + baseSongName + "'. See the logs for more details",
                         new Object[0]
                      );
-                     MeteorClient.LOG.error("An error occurred while loading song '" + FilenameUtils.getBaseName(file.getName()) + "'", ex);
+                     MeteorClient.LOG.error("An error occurred while loading song '" + baseSongName + "'", ex);
                      this.onSongEnd();
                   }
                }

@@ -1,6 +1,7 @@
 package meteordevelopment.meteorclient.utils.misc;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -15,7 +16,6 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
-import org.apache.commons.io.output.ByteArrayOutputStream;
 
 public class NbtUtils {
    private NbtUtils() {
