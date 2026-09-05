@@ -37,6 +37,7 @@ import meteordevelopment.meteorclient.utils.world.TickRate;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.player.Input;
+import net.minecraft.client.player.KeyboardInput;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -319,8 +320,10 @@ public class HighwayBuilder extends Module {
 
    @Override
    public void onDeactivate() {
-      this.mc.player.input = this.prevInput;
-      this.mc.player.setYRot(this.dir.yaw);
+      if (this.mc.player != null) {
+         this.mc.player.input = this.prevInput != null ? this.prevInput : new KeyboardInput(this.mc.options);
+         this.mc.player.setYRot(this.dir.yaw);
+      }
       if (this.displayInfo) {
          this.info("Distance: (highlight)%.0f", new Object[]{PlayerUtils.distanceTo(this.start)});
          this.info("Blocks broken: (highlight)%d", new Object[]{this.blocksBroken});
@@ -914,41 +917,33 @@ public class HighwayBuilder extends Module {
       Center {
          @Override
          protected void tick(HighwayBuilder b) {
-            double x = Math.abs(b.mc.player.getX() - (double)((int)b.mc.player.getX())) - 0.5;
-            double z = Math.abs(b.mc.player.getZ() - (double)((int)b.mc.player.getZ())) - 0.5;
-            boolean isX = Math.abs(x) <= 0.1;
-            boolean isZ = Math.abs(z) <= 0.1;
+            double targetX = Math.floor(b.mc.player.getX()) + 0.5;
+            double targetZ = Math.floor(b.mc.player.getZ()) + 0.5;
+            double diffX = targetX - b.mc.player.getX();
+            double diffZ = targetZ - b.mc.player.getZ();
+            boolean isX = Math.abs(diffX) <= 0.1;
+            boolean isZ = Math.abs(diffZ) <= 0.1;
             if (isX && isZ) {
                b.input.stop();
-               b.mc.player.setDeltaMovement(0.0, 0.0, 0.0);
-               b.mc
-                  .player
-                  .setPos(
-                     (double)((int)b.mc.player.getX()) + (b.mc.player.getX() < 0.0 ? -0.5 : 0.5),
-                     b.mc.player.getY(),
-                     (double)((int)b.mc.player.getZ()) + (b.mc.player.getZ() < 0.0 ? -0.5 : 0.5)
-                  );
+               b.mc.player.setDeltaMovement(0.0, b.mc.player.getDeltaMovement().y, 0.0);
+               b.mc.player.setPos(targetX, b.mc.player.getY(), targetZ);
                b.setState(b.lastState);
             } else {
                b.mc.player.setYRot(0.0F);
                if (!isZ) {
-                  b.input.up = z < 0.0;
-                  b.input.down = z > 0.0;
-                  if (b.mc.player.getZ() < 0.0) {
-                     boolean forward = b.input.up;
-                     b.input.up = b.input.down;
-                     b.input.down = forward;
-                  }
+                  b.input.up = diffZ > 0.05;
+                  b.input.down = diffZ < -0.05;
+               } else {
+                  b.input.up = false;
+                  b.input.down = false;
                }
 
                if (!isX) {
-                  b.input.right = x > 0.0;
-                  b.input.left = x < 0.0;
-                  if (b.mc.player.getX() < 0.0) {
-                     boolean right = b.input.right;
-                     b.input.right = b.input.left;
-                     b.input.left = right;
-                  }
+                  b.input.left = diffX > 0.05;
+                  b.input.right = diffX < -0.05;
+               } else {
+                  b.input.left = false;
+                  b.input.right = false;
                }
 
                b.input.shiftKeyDown = true;
@@ -1020,34 +1015,46 @@ public class HighwayBuilder extends Module {
       MineFront {
          @Override
          protected void tick(HighwayBuilder b) {
-            this.mine(b, b.blockPosProvider.getFront(), true, MineFloor, this);
+            this.mine(b, b.blockPosProvider.getFront(), true, Forward, this);
          }
       },
       MineFloor {
          @Override
          protected void start(HighwayBuilder b) {
-            this.mine(b, b.blockPosProvider.getFloor(), false, MineRailings, this);
+            this.mine(b, b.blockPosProvider.getFloor(), false, Forward, this);
          }
 
          @Override
          protected void tick(HighwayBuilder b) {
-            this.mine(b, b.blockPosProvider.getFloor(), false, MineRailings, this);
+            this.mine(b, b.blockPosProvider.getFloor(), false, Forward, this);
          }
       },
       MineRailings {
          @Override
          protected void start(HighwayBuilder b) {
-            this.mine(b, b.blockPosProvider.getRailings(true), false, PlaceRailings, this);
+            if (!b.railings.get()) {
+               b.setState(Forward);
+               return;
+            }
+            this.mine(b, b.blockPosProvider.getRailings(true), false, Forward, this);
          }
 
          @Override
          protected void tick(HighwayBuilder b) {
-            this.mine(b, b.blockPosProvider.getRailings(true), false, PlaceRailings, this);
+            if (!b.railings.get()) {
+               b.setState(Forward);
+               return;
+            }
+            this.mine(b, b.blockPosProvider.getRailings(true), false, Forward, this);
          }
       },
       PlaceRailings {
          @Override
          protected void tick(HighwayBuilder b) {
+            if (!b.railings.get()) {
+               b.setState(Forward);
+               return;
+            }
             int slot = this.findBlocksToPlace(b);
             if (slot != -1) {
                this.place(b, b.blockPosProvider.getRailings(false), slot, Forward);
@@ -1230,7 +1237,7 @@ public class HighwayBuilder extends Module {
                      this.stopTimerEnabled = true;
                      this.stopTimer = 8;
                   } else {
-                     BlockPos bp = pos.getBlockPos();
+                     BlockPos bp = pos.getBlockPos().immutable();
                      BlockState blockState = b.mc.level.getBlockState(bp);
                      if (blockState.getBlock() == Blocks.ENDER_CHEST) {
                         if (this.first) {
@@ -1312,7 +1319,7 @@ public class HighwayBuilder extends Module {
                }
 
                InvUtils.swap(slot, false);
-               BlockPos mcPos = pos.getBlockPos();
+               BlockPos mcPos = pos.getBlockPos().immutable();
                if (BlockUtils.canBreak(mcPos)) {
                   if (b.rotation.get().mine) {
                      Rotations.rotate(Rotations.getYaw(mcPos), Rotations.getPitch(mcPos), () -> BlockUtils.breakBlock(mcPos, true));

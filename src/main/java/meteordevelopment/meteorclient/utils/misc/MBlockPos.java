@@ -7,7 +7,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.state.BlockState;
 
 public class MBlockPos {
-   private static final MutableBlockPos POS = new MutableBlockPos();
    public int x;
    public int y;
    public int z;
@@ -52,7 +51,7 @@ public class MBlockPos {
    }
 
    public BlockPos getBlockPos() {
-      return POS.set(this.x, this.y, this.z);
+      return new BlockPos(this.x, this.y, this.z);
    }
 
    public BlockState getState() {
