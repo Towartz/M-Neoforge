@@ -1,0 +1,50 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "GPL-3.0"
+
+[[mods]]
+modId = "meteor_client"
+version = "0.5.8"
+displayName = "Meteor Client"
+description = "Based utility mod for Minecraft."
+authors = "MineGame159, squidoodly, seasnail"
+logoFile = "assets/meteor-client/icon.png"
+
+[[mods]]
+modId = "baritoe"
+version = "1.11.2"
+displayName = "Baritone"
+description = "A Minecraft pathfinder bot."
+authors = "leijurv, Brady"
+
+[[mixins]]
+config = "mixins.baritone.json"
+
+[[mixins]]
+config = "meteor-client.mixins.json"
+
+[[mixins]]
+config = "meteor-client-baritone.mixins.json"
+
+[[mixins]]
+config = "meteor-client-sodium.mixins.json"
+
+[[mixins]]
+config = "meteor-client-lithium.mixins.json"
+
+[[mixins]]
+config = "meteor-client-viafabricplus.mixins.json"
+
+[[dependencies.meteor_client]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.0,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.meteor_client]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "CLIENT"

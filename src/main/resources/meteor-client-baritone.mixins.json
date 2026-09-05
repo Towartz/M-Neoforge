@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "package": "meteordevelopment.meteorclient.mixin.baritone",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "meteordevelopment.meteorclient.MixinPlugin",
+  "client": [
+    "BaritoneBlockUtilsMixin",
+    "ComeCommandMixin",
+    "MineCommandMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  },
+  "refmap": "meteor-client-refmap.json"
+}

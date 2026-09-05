@@ -1,0 +1,24 @@
+﻿# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Decompiled & local tool caches
+decompiled/
+tools/
+scratch/
+__pycache__/
+
+# Logs & temp
+*.log
+*.no
+ReadModules.java
+parse_modules.py
+
+# Root test/dump jars (keep required libs/ dependencies)
+/*.jar
+!libs/*.jar
