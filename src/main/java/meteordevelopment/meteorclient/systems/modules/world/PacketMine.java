@@ -6,6 +6,10 @@ import meteordevelopment.meteorclient.events.entity.player.AttackEntityEvent;
 import meteordevelopment.meteorclient.events.entity.player.StartBreakingBlockEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.gui.GuiTheme;
+import meteordevelopment.meteorclient.gui.widgets.WLabel;
+import meteordevelopment.meteorclient.gui.widgets.WWidget;
+import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.ColorSetting;
@@ -53,7 +57,20 @@ public class PacketMine extends Module {
       );
 
    private final Setting<Integer> maxBlocks = this.sgGeneral
-      .add(new IntSetting.Builder().name("max-blocks").description("Maximum number of concurrent blocks to mine.").defaultValue(Integer.valueOf(1)).min(1).max(2).sliderMax(2).build());
+      .add(
+         new IntSetting.Builder()
+            .name("max-blocks")
+            .description("Maximum number of concurrent blocks to mine. WARNING: Values above 2-3 may trigger anti-cheat detections or rollbacks.")
+            .defaultValue(1)
+            .min(1)
+            .sliderRange(1, 10)
+            .onChanged(val -> {
+               if (val > 2) {
+                  this.warning("Max blocks set to %d. Mining more than 2-3 blocks concurrently may trigger anti-cheat kicks or rollbacks.", val);
+               }
+            })
+            .build()
+      );
 
    private final Setting<Boolean> autoRebreak = this.sgGeneral
       .add(new BoolSetting.Builder().name("auto-rebreak").description("Automatically re-mines if a block is placed back at the broken position.").defaultValue(Boolean.valueOf(true)).build());
@@ -179,6 +196,9 @@ public class PacketMine extends Module {
       this.combatTimer = 0;
       this.lastBrokenPos = null;
       this.lastBrokenDirection = null;
+      if (this.maxBlocks.get() > 2) {
+         this.warning("Max blocks is set to %d. Mining more than 2-3 blocks concurrently may trigger anti-cheat detections or rollbacks.", this.maxBlocks.get());
+      }
    }
 
    @Override
@@ -194,6 +214,17 @@ public class PacketMine extends Module {
       this.combatTimer = 0;
       this.lastBrokenPos = null;
       this.lastBrokenDirection = null;
+   }
+
+   @Override
+   public WWidget getWidget(GuiTheme theme) {
+      WVerticalList list = theme.verticalList();
+      WLabel label = list.add(theme.label(
+         "Warning: Mining more than 2-3 blocks concurrently may trigger anti-cheat kicks or rollbacks on multiplayer servers.",
+         (double)Utils.getWindowWidth() / 3.0
+      )).widget();
+      label.color = new Color(255, 170, 0);
+      return list;
    }
 
    @EventHandler
