@@ -2,24 +2,73 @@ package meteordevelopment.meteorclient.renderer;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.vertex.BufferUploader;
-import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.util.List;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.mixin.BufferRendererAccessor;
 import meteordevelopment.meteorclient.mixininterface.ICapabilityTracker;
 import net.minecraft.resources.ResourceLocation;
 import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL32C;
 
 public class GL {
    private static final FloatBuffer MAT = BufferUtils.createFloatBuffer(16);
-   private static final ICapabilityTracker DEPTH = getTracker("DEPTH");
-   private static final ICapabilityTracker BLEND = getTracker("BLEND");
-   private static final ICapabilityTracker CULL = getTracker("CULL");
-   private static final ICapabilityTracker SCISSOR = getTracker("SCISSOR");
+
+   public static class DirectCapabilityTracker implements ICapabilityTracker {
+      private final int cap;
+      private final java.util.function.Consumer<Boolean> setter;
+
+      public DirectCapabilityTracker(int cap, java.util.function.Consumer<Boolean> setter) {
+         this.cap = cap;
+         this.setter = setter;
+      }
+
+      @Override
+      public boolean get() {
+         return GL32C.glIsEnabled(this.cap);
+      }
+
+      @Override
+      public void set(boolean enabled) {
+         this.setter.accept(enabled);
+      }
+   }
+
+   private static final class GlState {
+      final boolean blend;
+      final boolean depth;
+      final boolean cull;
+      final boolean scissor;
+
+      GlState(boolean blend, boolean depth, boolean cull, boolean scissor) {
+         this.blend = blend;
+         this.depth = depth;
+         this.cull = cull;
+         this.scissor = scissor;
+      }
+   }
+
+   private static final Deque<GlState> STATE_STACK = new ArrayDeque<>();
+
+   private static final ICapabilityTracker DEPTH = new DirectCapabilityTracker(GL32C.GL_DEPTH_TEST, s -> {
+      if (s) GlStateManager._enableDepthTest(); else GlStateManager._disableDepthTest();
+   });
+   private static final ICapabilityTracker BLEND = new DirectCapabilityTracker(GL32C.GL_BLEND, s -> {
+      if (s) GlStateManager._enableBlend(); else GlStateManager._disableBlend();
+   });
+   private static final ICapabilityTracker CULL = new DirectCapabilityTracker(GL32C.GL_CULL_FACE, s -> {
+      if (s) GlStateManager._enableCull(); else GlStateManager._disableCull();
+   });
+   private static final ICapabilityTracker SCISSOR = new DirectCapabilityTracker(GL32C.GL_SCISSOR_TEST, s -> {
+      if (s) GlStateManager._enableScissorTest(); else GlStateManager._disableScissorTest();
+   });
+
    private static boolean depthSaved;
    private static boolean blendSaved;
    private static boolean cullSaved;
@@ -207,43 +256,25 @@ public class GL {
    }
 
    public static void saveState() {
-      depthSaved = DEPTH != null ? DEPTH.get() : GL32C.glIsEnabled(GL32C.GL_DEPTH_TEST);
-      blendSaved = BLEND != null ? BLEND.get() : GL32C.glIsEnabled(GL32C.GL_BLEND);
-      cullSaved = CULL != null ? CULL.get() : GL32C.glIsEnabled(GL32C.GL_CULL_FACE);
-      scissorSaved = SCISSOR != null ? SCISSOR.get() : GL32C.glIsEnabled(GL32C.GL_SCISSOR_TEST);
+      depthSaved = DEPTH.get();
+      blendSaved = BLEND.get();
+      cullSaved = CULL.get();
+      scissorSaved = SCISSOR.get();
+      STATE_STACK.push(new GlState(blendSaved, depthSaved, cullSaved, scissorSaved));
    }
 
    public static void restoreState() {
-      if (DEPTH != null) {
+      if (!STATE_STACK.isEmpty()) {
+         GlState state = STATE_STACK.pop();
+         DEPTH.set(state.depth);
+         BLEND.set(state.blend);
+         CULL.set(state.cull);
+         SCISSOR.set(state.scissor);
+      } else {
          DEPTH.set(depthSaved);
-      } else if (depthSaved) {
-         GlStateManager._enableDepthTest();
-      } else {
-         GlStateManager._disableDepthTest();
-      }
-
-      if (BLEND != null) {
          BLEND.set(blendSaved);
-      } else if (blendSaved) {
-         GlStateManager._enableBlend();
-      } else {
-         GlStateManager._disableBlend();
-      }
-
-      if (CULL != null) {
          CULL.set(cullSaved);
-      } else if (cullSaved) {
-         GlStateManager._enableCull();
-      } else {
-         GlStateManager._disableCull();
-      }
-
-      if (SCISSOR != null) {
          SCISSOR.set(scissorSaved);
-      } else if (scissorSaved) {
-         GlStateManager._enableScissorTest();
-      } else {
-         GlStateManager._disableScissorTest();
       }
 
       disableLineSmooth();
@@ -262,7 +293,8 @@ public class GL {
 
    public static void enableBlend() {
       GlStateManager._enableBlend();
-      GlStateManager._blendFunc(770, 771);
+      GlStateManager._blendEquation(GL14.GL_FUNC_ADD);
+      GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
    }
 
    public static void disableBlend() {
@@ -312,69 +344,36 @@ public class GL {
       GlStateManager._activeTexture(33984);
    }
 
-   private static ICapabilityTracker getTracker(String fieldName) {
-      try {
-         Class<?> glStateManager = GlStateManager.class;
-         Field field = glStateManager.getDeclaredField(fieldName);
-         field.setAccessible(true);
-         Object state = field.get(null);
-         if (state == null) {
-            return createFallbackTracker();
-         }
-         if (state instanceof ICapabilityTracker) {
-            return (ICapabilityTracker) state;
-         }
-         Field capStateField = null;
-
-         for (Field f : state.getClass().getDeclaredFields()) {
-            if (ICapabilityTracker.class.isAssignableFrom(f.getType()) || f.getType().getName().contains("BooleanState") || f.getType().getName().contains("CapabilityTracker") || f.getType().getName().contains("$b")) {
-               capStateField = f;
-               break;
-            }
-         }
-
-         if (capStateField == null && state.getClass().getDeclaredFields().length > 0) {
-            capStateField = state.getClass().getDeclaredFields()[0];
-         }
-
-         if (capStateField != null) {
-            capStateField.setAccessible(true);
-            Object tracker = capStateField.get(state);
-            if (tracker instanceof ICapabilityTracker) {
-               return (ICapabilityTracker) tracker;
-            }
-            if (tracker != null) {
-               return new ICapabilityTracker() {
-                  @Override
-                  public boolean get() {
-                     try {
-                        Field f = tracker.getClass().getDeclaredField("enabled");
-                        f.setAccessible(true);
-                        return f.getBoolean(tracker);
-                     } catch (Exception e) {
-                        return false;
-                     }
-                  }
-
-                  @Override
-                  public void set(boolean s) {
-                     try {
-                        java.lang.reflect.Method m = tracker.getClass().getDeclaredMethod("setEnabled", boolean.class);
-                        m.setAccessible(true);
-                        m.invoke(tracker, s);
-                     } catch (Exception ignored) {
-                     }
-                  }
-               };
-            }
-         }
-         return createFallbackTracker();
-      } catch (Exception var10) {
-         return createFallbackTracker();
-      }
+   public static void unbindProgram() {
+      useProgram(0);
    }
 
-   private static ICapabilityTracker createFallbackTracker() {
+   public static void unbindShader() {
+      useProgram(0);
+   }
+
+   public static void unbindTexture() {
+      bindTexture(0, 0);
+   }
+
+   public static void unbindTexture(int slot) {
+      bindTexture(0, slot);
+   }
+
+   public static ICapabilityTracker getTracker(String fieldName) {
+      if (fieldName == null) {
+         return createFallbackTracker();
+      }
+      return switch (fieldName.toUpperCase()) {
+         case "DEPTH" -> DEPTH;
+         case "BLEND" -> BLEND;
+         case "CULL" -> CULL;
+         case "SCISSOR" -> SCISSOR;
+         default -> createFallbackTracker();
+      };
+   }
+
+   public static ICapabilityTracker createFallbackTracker() {
       return new ICapabilityTracker() {
          private boolean val;
          @Override public boolean get() { return this.val; }

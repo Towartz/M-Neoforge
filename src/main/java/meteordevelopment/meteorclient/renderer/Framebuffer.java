@@ -44,7 +44,7 @@ public class Framebuffer {
    }
 
    public void unbind() {
-      MeteorClient.mc.getMainRenderTarget().bindWrite(false);
+      MeteorClient.mc.getMainRenderTarget().bindWrite(true);
    }
 
    public void resize() {

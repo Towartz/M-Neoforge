@@ -8,6 +8,7 @@ import java.nio.IntBuffer;
 import java.util.Optional;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.ResourcePacksReloadedEvent;
+import meteordevelopment.meteorclient.renderer.GL;
 import meteordevelopment.meteorclient.renderer.Texture;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.render.Chams;
@@ -107,6 +108,13 @@ public class ChamsShader extends EntityShader {
          IMAGE_TEX.bind(1);
          this.shader.set("u_TextureI", 1);
       }
+   }
+
+   @Override
+   protected void postDraw() {
+      super.postDraw();
+      GL.bindTexture(0, 1);
+      GL.resetTextureSlot();
    }
 
    @Override

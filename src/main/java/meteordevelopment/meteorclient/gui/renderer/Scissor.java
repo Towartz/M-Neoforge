@@ -30,6 +30,15 @@ public class Scissor {
    }
 
    public void apply() {
-      GL11.glScissor(this.x, Utils.getWindowHeight() - this.y - this.height, this.width, this.height);
+      int windowWidth = Utils.getWindowWidth();
+      int windowHeight = Utils.getWindowHeight();
+
+      int clampedX = Math.max(0, Math.min(this.x, windowWidth));
+      int clampedY = Math.max(0, Math.min(this.y, windowHeight));
+      int clampedW = Math.max(0, Math.min(this.width, windowWidth - clampedX));
+      int clampedH = Math.max(0, Math.min(this.height, windowHeight - clampedY));
+
+      int glY = Math.max(0, windowHeight - clampedY - clampedH);
+      GL11.glScissor(clampedX, glY, clampedW, clampedH);
    }
 }

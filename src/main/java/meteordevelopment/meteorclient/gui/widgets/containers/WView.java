@@ -19,7 +19,7 @@ public abstract class WView extends WVerticalList {
 
    @Override
    public void init() {
-      this.maxHeight = (double)Utils.getWindowHeight() - this.theme.scale(128.0);
+      this.maxHeight = Math.max(0.0, (double)Utils.getWindowHeight() - this.theme.scale(128.0));
    }
 
    @Override
@@ -27,10 +27,14 @@ public abstract class WView extends WVerticalList {
       boolean couldScroll = this.canScroll;
       this.canScroll = false;
       this.widthRemove = 0.0;
+      double availableHeight = Math.max(0.0, (double)Utils.getWindowHeight() - this.theme.scale(128.0));
+      if (this.maxHeight > availableHeight) {
+         this.maxHeight = availableHeight;
+      }
       super.onCalculateSize();
       if (this.height > this.maxHeight) {
          this.actualHeight = this.height;
-         this.height = this.maxHeight;
+         this.height = Math.max(0.0, this.maxHeight);
          this.canScroll = true;
          if (this.hasScrollBar) {
             this.widthRemove = this.handleWidth() * 2.0;

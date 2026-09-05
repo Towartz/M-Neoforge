@@ -10,6 +10,7 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.MultiBufferSource.BufferSource;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
+import org.lwjgl.opengl.GL11;
 
 public class VanillaTextRenderer implements TextRenderer {
    public static final VanillaTextRenderer INSTANCE = new VanillaTextRenderer();
@@ -103,6 +104,7 @@ public class VanillaTextRenderer implements TextRenderer {
       if (!this.building) {
          throw new RuntimeException("VanillaTextRenderer.end() called without calling begin()");
       } else {
+         boolean depthWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
          Matrix4fStack matrixStack = RenderSystem.getModelViewStack();
          RenderSystem.disableDepthTest();
          matrixStack.pushMatrix();
@@ -117,7 +119,11 @@ public class VanillaTextRenderer implements TextRenderer {
          RenderSystem.applyModelViewMatrix();
          this.immediate.endBatch();
          matrixStack.popMatrix();
-         RenderSystem.enableDepthTest();
+         if (depthWasEnabled) {
+            RenderSystem.enableDepthTest();
+         } else {
+            RenderSystem.disableDepthTest();
+         }
          RenderSystem.applyModelViewMatrix();
          this.scale = 2.0;
          this.building = false;

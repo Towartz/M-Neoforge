@@ -13,7 +13,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.Locale;
 import java.util.Random;
 import java.util.regex.Pattern;
@@ -252,13 +254,19 @@ public class Utils {
       return MeteorClient.mc.getWindow().getHeight();
    }
 
+   private static final Deque<Matrix4f> projectionMatrixStack = new ArrayDeque<>();
+   private static final Deque<VertexSorting> vertexSorterStack = new ArrayDeque<>();
    private static final Matrix4f prevProjectionMatrix = new Matrix4f();
 
    public static void unscaledProjection() {
       vertexSorter = RenderSystem.getVertexSorting();
+      if (vertexSorter != null) {
+         vertexSorterStack.push(vertexSorter);
+      }
       Matrix4f currentProj = RenderSystem.getProjectionMatrix();
       if (currentProj != null) {
          prevProjectionMatrix.set(currentProj);
+         projectionMatrixStack.push(new Matrix4f(currentProj));
       }
       RenderSystem.setProjectionMatrix(
          new Matrix4f().setOrtho(0.0F, (float)MeteorClient.mc.getWindow().getWidth(), (float)MeteorClient.mc.getWindow().getHeight(), 0.0F, 1000.0F, 21000.0F),
@@ -268,7 +276,13 @@ public class Utils {
    }
 
    public static void scaledProjection() {
-      RenderSystem.setProjectionMatrix(prevProjectionMatrix, vertexSorter);
+      if (!projectionMatrixStack.isEmpty()) {
+         Matrix4f proj = projectionMatrixStack.pop();
+         VertexSorting sorter = !vertexSorterStack.isEmpty() ? vertexSorterStack.pop() : vertexSorter;
+         RenderSystem.setProjectionMatrix(proj, sorter);
+      } else {
+         RenderSystem.setProjectionMatrix(prevProjectionMatrix, vertexSorter);
+      }
       rendering3D = true;
    }
 

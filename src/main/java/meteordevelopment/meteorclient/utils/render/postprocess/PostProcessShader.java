@@ -62,7 +62,7 @@ public abstract class PostProcessShader {
    public void beginRender() {
       if (this.shouldDraw()) {
          this.framebuffer.clear(Minecraft.ON_OSX);
-         MeteorClient.mc.getMainRenderTarget().bindWrite(false);
+         MeteorClient.mc.getMainRenderTarget().bindWrite(true);
       }
    }
 
@@ -71,7 +71,7 @@ public abstract class PostProcessShader {
          this.preDraw();
          draw.run();
          this.postDraw();
-         MeteorClient.mc.getMainRenderTarget().bindWrite(false);
+         MeteorClient.mc.getMainRenderTarget().bindWrite(true);
          GL.bindTexture(this.framebuffer.getColorTextureId(), 0);
          this.shader.bind();
          this.shader.set("u_Size", (double)MeteorClient.mc.getWindow().getWidth(), (double)MeteorClient.mc.getWindow().getHeight());
@@ -79,6 +79,12 @@ public abstract class PostProcessShader {
          this.shader.set("u_Time", GLFW.glfwGetTime());
          this.setUniforms();
          PostProcessRenderer.render();
+         PostProcessRenderer.endRender();
+         GL.useProgram(0);
+         GL.bindTexture(0);
+         GL.bindTexture(0, 1);
+         GL.resetTextureSlot();
+         MeteorClient.mc.getMainRenderTarget().bindWrite(true);
       }
    }
 

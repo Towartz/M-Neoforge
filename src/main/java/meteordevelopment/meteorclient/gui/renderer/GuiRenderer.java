@@ -1,5 +1,6 @@
 package meteordevelopment.meteorclient.gui.renderer;
 
+import com.mojang.blaze3d.platform.GlStateManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
@@ -8,6 +9,9 @@ import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.renderer.operations.TextOperation;
 import meteordevelopment.meteorclient.gui.renderer.packer.GuiTexture;
 import meteordevelopment.meteorclient.gui.renderer.packer.TexturePacker;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL14;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.renderer.GL;
 import meteordevelopment.meteorclient.renderer.Renderer2D;
@@ -64,7 +68,15 @@ public class GuiRenderer {
 
    public void begin(GuiGraphics drawContext) {
       this.drawContext = drawContext;
+      GL.saveState();
       GL.enableBlend();
+      GlStateManager._blendEquation(GL14.GL_FUNC_ADD);
+      GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
+      GlStateManager._disableDepthTest();
+      GlStateManager._depthMask(true);
+      GlStateManager._colorMask(true, true, true, true);
+      GlStateManager._disableCull();
+      GL.resetTextureSlot();
       GL.enableScissorTest();
       this.scissorStart(0.0, 0.0, (double)Utils.getWindowWidth(), (double)Utils.getWindowHeight());
    }
@@ -81,7 +93,9 @@ public class GuiRenderer {
       GL.useProgram(0);
       GL.bindVertexArray(0);
       GL.bindTexture(0);
+      GL.resetTextureSlot();
       com.mojang.blaze3d.vertex.BufferUploader.reset();
+      GL.restoreState();
    }
 
    public void beginRender() {
@@ -123,17 +137,14 @@ public class GuiRenderer {
    public void scissorStart(double x, double y, double width, double height) {
       if (!this.scissorStack.isEmpty()) {
          Scissor parent = this.scissorStack.peek();
-         if (x < (double)parent.x) {
-            x = (double)parent.x;
-         } else if (x + width > (double)(parent.x + parent.width)) {
-            width -= x + width - (double)(parent.x + parent.width);
-         }
-
-         if (y < (double)parent.y) {
-            y = (double)parent.y;
-         } else if (y + height > (double)(parent.y + parent.height)) {
-            height -= y + height - (double)(parent.y + parent.height);
-         }
+         double newX = Math.max(x, (double)parent.x);
+         double newY = Math.max(y, (double)parent.y);
+         double newX2 = Math.min(x + width, (double)(parent.x + parent.width));
+         double newY2 = Math.min(y + height, (double)(parent.y + parent.height));
+         x = newX;
+         y = newY;
+         width = Math.max(0.0, newX2 - newX);
+         height = Math.max(0.0, newY2 - newY);
 
          parent.apply();
          this.endRender();

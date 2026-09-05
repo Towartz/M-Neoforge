@@ -68,16 +68,16 @@ public abstract class WWindow extends WVerticalList {
       if (this.id != null) {
          WindowConfig config = this.theme.getWindowConfig(this.id);
          if (config.x != -1.0) {
-            this.x = config.x;
+            this.x = Math.max(0.0, config.x);
             if (this.x + this.width > (double)Utils.getWindowWidth()) {
-               this.x = (double)Utils.getWindowWidth() - this.width;
+               this.x = Math.max(0.0, (double)Utils.getWindowWidth() - this.width);
             }
          }
 
          if (config.y != -1.0) {
-            this.y = config.y;
+            this.y = Math.max(0.0, config.y);
             if (this.y + this.height > (double)Utils.getWindowHeight()) {
-               this.y = (double)Utils.getWindowHeight() - this.height;
+               this.y = Math.max(0.0, (double)Utils.getWindowHeight() - this.height);
             }
          }
       }
