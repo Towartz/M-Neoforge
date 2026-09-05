@@ -5,6 +5,7 @@ import baritone.api.IBaritone;
 import baritone.api.Settings;
 import baritone.api.pathing.goals.GoalGetToBlock;
 import baritone.api.process.IMineProcess;
+import baritone.api.utils.BlockOptionalMeta;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -171,6 +172,7 @@ public class ChunkScanner extends Module {
    private final List<List<Block>> sequentialTargetQueue = new ArrayList<>();
    private ChunkPos targetChunkPos = null;
    private int miningStuckTicks = 0;
+   private int miningRetryCount = 0;
 
    public ChunkScanner() {
       super(Categories.World, "chunk-scanner", "Auto-discovers all vanilla and modded ores in the current chunk.");
@@ -221,17 +223,23 @@ public class ChunkScanner extends Module {
       this.isMiningChunk = this.supervisor.get();
       this.targetChunkPos = this.mc.player.chunkPosition();
       this.miningStuckTicks = 0;
+      this.miningRetryCount = 0;
 
       this.applyBaritoneSettings();
 
       IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
       baritone.getPathingBehavior().cancelEverything();
 
-      // Guide Baritone to nearest ore coordinate in chunk first
-      this.guideToNearestRemainingInChunk(baritone);
+      // Repack Baritone world scanner cache so all loaded blocks are indexed
+      BaritoneAPI.getProvider().getWorldScanner().repack(baritone.getPlayerContext());
 
-      baritone.getMineProcess().mine(0, this.activeTargets.toArray(new Block[0]));
-      this.info("Started chunk mining on (highlight)%d(default) target block types.", this.activeTargets.size());
+      List<BlockOptionalMeta> metas = new ArrayList<>(this.activeTargets.size());
+      for (Block b : this.activeTargets) {
+         metas.add(new BlockOptionalMeta(b));
+      }
+
+      baritone.getMineProcess().mine(0, metas.toArray(new BlockOptionalMeta[0]));
+      this.info("Started chunk mining on (highlight)%d(default) target block type(s).", this.activeTargets.size());
    }
 
    public void startSequentialMining(List<DiscoveredBlockEntry> entries) {
@@ -291,44 +299,31 @@ public class ChunkScanner extends Module {
       this.activeTargets.clear();
       this.activeTargets.addAll(nextTargets);
       this.miningStuckTicks = 0;
+      this.miningRetryCount = 0;
 
       this.applyBaritoneSettings();
 
       IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
       baritone.getPathingBehavior().cancelEverything();
 
-      // Guide to nearest block in current chunk
-      this.guideToNearestRemainingInChunk(baritone);
+      // Repack Baritone world scanner cache
+      BaritoneAPI.getProvider().getWorldScanner().repack(baritone.getPlayerContext());
 
-      baritone.getMineProcess().mine(0, this.activeTargets.toArray(new Block[0]));
-   }
-
-   private void guideToNearestRemainingInChunk(IBaritone baritone) {
-      if (this.mc.player == null) return;
-      this.forceScan();
-      BlockPos nearest = null;
-      double minD = Double.MAX_VALUE;
-      BlockPos playerPos = this.mc.player.blockPosition();
-
-      if (this.lastResult != null) {
-         for (DiscoveredBlockEntry e : this.lastResult.entries) {
-            if (this.activeTargets.contains(e.block) && e.nearestPos != null) {
-               double d = e.getDistanceSq(playerPos);
-               if (d < minD) {
-                  minD = d;
-                  nearest = e.nearestPos;
-               }
-            }
-         }
+      List<BlockOptionalMeta> metas = new ArrayList<>(this.activeTargets.size());
+      for (Block b : this.activeTargets) {
+         metas.add(new BlockOptionalMeta(b));
       }
 
-      if (nearest != null) {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(nearest));
-      }
+      baritone.getMineProcess().mine(0, metas.toArray(new BlockOptionalMeta[0]));
+      this.info("Mining next vein: (highlight)%s(default) (%d remaining in queue).",
+         nextTargets.get(0).getName().getString(), this.sequentialTargetQueue.size());
    }
 
    private void applyBaritoneSettings() {
       Settings s = BaritoneAPI.getSettings();
+      s.allowBreak.value = true;
+      s.allowPlace.value = true;
+      s.allowSprint.value = true;
       s.blacklistClosestOnFailure.value = this.blacklistClosestOnFailure.get();
       s.allowOnlyExposedOres.value = this.allowOnlyExposedOres.get();
       s.legitMine.value = this.legitMine.get();
@@ -345,8 +340,13 @@ public class ChunkScanner extends Module {
          this.sequentialTargetQueue.clear();
          this.targetChunkPos = null;
          this.miningStuckTicks = 0;
+         this.miningRetryCount = 0;
          if (BaritoneAPI.getProvider() != null) {
-            BaritoneAPI.getProvider().getPrimaryBaritone().getPathingBehavior().cancelEverything();
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+               baritone.getMineProcess().cancel();
+               baritone.getPathingBehavior().cancelEverything();
+            }
          }
          this.info("Stopped chunk mining.");
       }
@@ -389,57 +389,58 @@ public class ChunkScanner extends Module {
       // Active Mining Supervisor (Sequential & Chunk-Bounded)
       if (this.supervisor.get() && this.isMiningChunk && !this.activeTargets.isEmpty() && BaritoneAPI.getProvider() != null) {
          IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-         boolean isMining = baritone.getPathingControlManager().mostRecentInControl().orElse(null) instanceof IMineProcess;
-         boolean isPathing = baritone.getPathingBehavior().isPathing();
+         IMineProcess mineProcess = baritone.getMineProcess();
 
-         if (!isMining && !isPathing) {
-            this.miningStuckTicks++;
-            if (this.miningStuckTicks >= 10) { // 0.5s pause detected
-               this.miningStuckTicks = 0;
-               this.forceScan();
-
-               List<BlockPos> remaining = new ArrayList<>();
-               if (this.lastResult != null) {
-                  for (DiscoveredBlockEntry entry : this.lastResult.entries) {
-                     if (this.activeTargets.contains(entry.block)) {
-                        remaining.addAll(entry.positions);
-                     }
-                  }
-               }
-
-               if (!remaining.isEmpty()) {
-                  // Find nearest remaining ore block in this chunk
-                  BlockPos playerPos = this.mc.player.blockPosition();
-                  BlockPos nearest = null;
-                  double minDist = Double.MAX_VALUE;
-                  for (BlockPos pos : remaining) {
-                     double d = pos.distSqr(playerPos);
-                     if (d < minDist) {
-                        minDist = d;
-                        nearest = pos;
-                     }
-                  }
-
-                  if (nearest != null) {
-                     baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(nearest));
-                     baritone.getMineProcess().mine(0, this.activeTargets.toArray(new Block[0]));
-                  }
-               } else {
-                  // Current target ore in this chunk is completely mined!
-                  if (!this.sequentialTargetQueue.isEmpty()) {
-                     this.advanceSequentialMining();
-                  } else {
-                     this.info("Finished mining all target ores in chunk [%d, %d]!",
-                        this.targetChunkPos != null ? this.targetChunkPos.x : currentPos.x,
-                        this.targetChunkPos != null ? this.targetChunkPos.z : currentPos.z);
-                     this.isMiningChunk = false;
-                     this.activeTargets.clear();
-                     this.targetChunkPos = null;
-                  }
+         // 1. Check remaining targets in the targeted chunk
+         int remainingInChunk = 0;
+         if (this.lastResult != null) {
+            for (DiscoveredBlockEntry entry : this.lastResult.entries) {
+               if (this.activeTargets.contains(entry.block)) {
+                  remainingInChunk += entry.count;
                }
             }
+         }
+
+         if (remainingInChunk == 0) {
+            // Current targets in this chunk are all mined!
+            mineProcess.cancel();
+            baritone.getPathingBehavior().cancelEverything();
+            if (!this.sequentialTargetQueue.isEmpty()) {
+               this.advanceSequentialMining();
+            } else {
+               this.info("Finished mining all target blocks in chunk [%d, %d]!",
+                  this.targetChunkPos != null ? this.targetChunkPos.x : currentPos.x,
+                  this.targetChunkPos != null ? this.targetChunkPos.z : currentPos.z);
+               this.stopMining();
+            }
          } else {
-            this.miningStuckTicks = 0;
+            // Targets still exist in chunk: ensure mine process is active
+            if (!mineProcess.isActive()) {
+               this.miningStuckTicks++;
+               if (this.miningStuckTicks >= 25) { // 1.25s grace period before re-triggering
+                  this.miningStuckTicks = 0;
+                  this.miningRetryCount++;
+                  if (this.miningRetryCount <= 3) {
+                     // Refresh world cache and re-trigger mine
+                     BaritoneAPI.getProvider().getWorldScanner().repack(baritone.getPlayerContext());
+                     List<BlockOptionalMeta> metas = new ArrayList<>(this.activeTargets.size());
+                     for (Block b : this.activeTargets) {
+                        metas.add(new BlockOptionalMeta(b));
+                     }
+                     mineProcess.mine(0, metas.toArray(new BlockOptionalMeta[0]));
+                  } else {
+                     // Skip to next if unreachable after 3 attempts
+                     this.warning("Could not reach remaining target blocks in chunk. Skipping...");
+                     if (!this.sequentialTargetQueue.isEmpty()) {
+                        this.advanceSequentialMining();
+                     } else {
+                        this.stopMining();
+                     }
+                  }
+               }
+            } else {
+               this.miningStuckTicks = 0;
+            }
          }
       }
    }
@@ -463,7 +464,7 @@ public class ChunkScanner extends Module {
 
             if (this.supervisor.get() && this.isMiningChunk && !this.activeTargets.isEmpty()) {
                if (this.activeTargets.contains(oldBlock) && event.newState.isAir()) {
-                  this.miningStuckTicks = 8;
+                  this.miningStuckTicks = 0;
                }
             }
          }
