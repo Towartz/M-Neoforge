@@ -2,6 +2,7 @@ package meteordevelopment.meteorclient.systems.modules.player;
 
 import java.util.List;
 import java.util.function.Predicate;
+import meteordevelopment.meteorclient.events.entity.player.AttackEntityEvent;
 import meteordevelopment.meteorclient.events.entity.player.StartBreakingBlockEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.BoolSetting;
@@ -35,6 +36,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.EntityHitResult;
 
 public class AutoTool extends Module {
    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
@@ -113,22 +115,72 @@ public class AutoTool extends Module {
    private boolean shouldSwitch;
    private int ticks;
    private int bestSlot;
+   private int swappedSlot = -1;
 
    public AutoTool() {
       super(Categories.Player, "auto-tool", "Automatically switches to the most effective tool when performing an action.");
    }
 
+   @Override
+   public void onActivate() {
+      this.swappedSlot = -1;
+      this.shouldSwitch = false;
+      this.bestSlot = -1;
+      this.wasPressed = false;
+   }
+
+   @Override
+   public void onDeactivate() {
+      InvUtils.clearPreviousSlot();
+      this.swappedSlot = -1;
+      this.shouldSwitch = false;
+      this.bestSlot = -1;
+      this.wasPressed = false;
+   }
+
+   @EventHandler
+   private void onAttackEntity(AttackEntityEvent event) {
+      InvUtils.clearPreviousSlot();
+      this.shouldSwitch = false;
+      this.bestSlot = -1;
+      this.swappedSlot = -1;
+      this.wasPressed = false;
+   }
+
    @EventHandler
    private void onTick(TickEvent.Post event) {
       if (!Modules.get().isActive(InfinityMiner.class)) {
+         if (this.mc.player == null) return;
+
+         if (this.mc.hitResult instanceof EntityHitResult) {
+            InvUtils.clearPreviousSlot();
+            this.swappedSlot = -1;
+            this.shouldSwitch = false;
+            this.bestSlot = -1;
+            this.wasPressed = false;
+            return;
+         }
+
+         int currentSlot = this.mc.player.getInventory().selected;
+         if (this.swappedSlot != -1 && currentSlot != this.swappedSlot) {
+            InvUtils.clearPreviousSlot();
+            this.swappedSlot = -1;
+            this.shouldSwitch = false;
+            this.bestSlot = -1;
+         }
+
          if (this.switchBack.get() && !this.mc.options.keyAttack.isDown() && this.wasPressed && InvUtils.previousSlot != -1) {
             InvUtils.swapBack();
             this.wasPressed = false;
+            this.swappedSlot = -1;
          } else {
             if (this.ticks <= 0 && this.shouldSwitch && this.bestSlot != -1) {
-               InvUtils.swap(this.bestSlot, this.switchBack.get());
+               if (!(this.mc.hitResult instanceof EntityHitResult)) {
+                  this.swappedSlot = this.bestSlot;
+                  InvUtils.swap(this.bestSlot, this.switchBack.get());
+               }
                this.shouldSwitch = false;
-            } else {
+            } else if (this.ticks > 0) {
                this.ticks--;
             }
 
@@ -142,6 +194,10 @@ public class AutoTool extends Module {
    )
    private void onStartBreakingBlock(StartBreakingBlockEvent event) {
       if (!Modules.get().isActive(InfinityMiner.class)) {
+         if (this.mc.hitResult instanceof EntityHitResult) {
+            return;
+         }
+
          BlockState blockState = this.mc.level.getBlockState(event.blockPos);
          if (BlockUtils.canBreak(event.blockPos, blockState)) {
             ItemStack currentStack = this.mc.player.getMainHandItem();
@@ -181,6 +237,7 @@ public class AutoTool extends Module {
                || !isTool(currentStack)) {
                this.ticks = this.switchDelay.get();
                if (this.ticks == 0) {
+                  this.swappedSlot = this.bestSlot;
                   InvUtils.swap(this.bestSlot, true);
                } else {
                   this.shouldSwitch = true;

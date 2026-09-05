@@ -185,11 +185,18 @@ public class InvUtils {
    public static boolean swapBack() {
       if (previousSlot == -1) {
          return false;
+      } else if (MeteorClient.mc.player != null && previousSlot == MeteorClient.mc.player.getInventory().selected) {
+         previousSlot = -1;
+         return false;
       } else {
          boolean return_ = swap(previousSlot, false);
          previousSlot = -1;
          return return_;
       }
+   }
+
+   public static void clearPreviousSlot() {
+      previousSlot = -1;
    }
 
    public static InvUtils.Action move() {

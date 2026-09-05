@@ -2,6 +2,7 @@ package meteordevelopment.meteorclient.systems.modules.world;
 
 import java.util.ArrayList;
 import java.util.List;
+import meteordevelopment.meteorclient.events.entity.player.AttackEntityEvent;
 import meteordevelopment.meteorclient.events.entity.player.StartBreakingBlockEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -34,34 +35,68 @@ import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket.Action;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 public class PacketMine extends Module {
    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
    private final SettingGroup sgRender = this.settings.createGroup("Render");
+
+   public final Setting<PacketMine.Mode> mode = this.sgGeneral
+      .add(
+         new EnumSetting.Builder<PacketMine.Mode>()
+            .name("mode")
+            .description("How the packet mine sends break packets.")
+            .defaultValue(PacketMine.Mode.Normal)
+            .build()
+      );
+
    private final Setting<Integer> delay = this.sgGeneral
       .add(new IntSetting.Builder().name("delay").description("Delay between mining blocks in ticks.").defaultValue(Integer.valueOf(1)).min(0).build());
+
    private final Setting<Boolean> rotate = this.sgGeneral
       .add(
          new BoolSetting.Builder().name("rotate").description("Sends rotation packets to the server when mining.").defaultValue(Boolean.valueOf(true)).build()
       );
+
    private final Setting<Boolean> autoSwitch = this.sgGeneral
       .add(
          new BoolSetting.Builder()
             .name("auto-switch")
-            .description("Automatically switches to the best tool when the block is ready to be mined instantly.")
-            .defaultValue(Boolean.valueOf(false))
+            .description("Automatically switches to the best tool when the block is ready to be broken.")
+            .defaultValue(Boolean.valueOf(true))
             .build()
       );
-   private final Setting<Boolean> notOnUse = this.sgGeneral
+
+   private final Setting<Boolean> silentSwitch = this.sgGeneral
       .add(
          new BoolSetting.Builder()
-            .name("not-on-use")
-            .description("Won't auto switch if you're using an item.")
+            .name("silent-switch")
+            .description("Switches to the tool only for the break packet, then immediately restores your previous weapon/item.")
             .defaultValue(Boolean.valueOf(true))
             .visible(this.autoSwitch::get)
             .build()
       );
+
+   private final Setting<Boolean> pauseOnCombat = this.sgGeneral
+      .add(
+         new BoolSetting.Builder()
+            .name("pause-on-combat")
+            .description("Pauses tool switching when targeting an entity or in active combat.")
+            .defaultValue(Boolean.valueOf(true))
+            .build()
+      );
+
+   private final Setting<Boolean> notOnUse = this.sgGeneral
+      .add(
+         new BoolSetting.Builder()
+            .name("not-on-use")
+            .description("Won't auto switch if you're using an item (shield, food, bow).")
+            .defaultValue(Boolean.valueOf(true))
+            .visible(this.autoSwitch::get)
+            .build()
+      );
+
    private final Setting<Boolean> render = this.sgRender
       .add(new BoolSetting.Builder().name("render").description("Whether or not to render the block being mined.").defaultValue(Boolean.valueOf(true)).build());
    private final Setting<ShapeMode> shapeMode = this.sgRender
@@ -105,8 +140,7 @@ public class PacketMine extends Module {
       );
    private final Pool<PacketMine.MyBlock> blockPool = new Pool<>(() -> new PacketMine.MyBlock());
    public final List<PacketMine.MyBlock> blocks = new ArrayList<>();
-   private boolean swapped;
-   private boolean shouldUpdateSlot;
+   private int combatTimer;
 
    public PacketMine() {
       super(Categories.World, "packet-mine", "Sends packets to mine blocks without the mining animation.");
@@ -114,27 +148,44 @@ public class PacketMine extends Module {
 
    @Override
    public void onActivate() {
-      this.swapped = false;
+      this.combatTimer = 0;
    }
 
    @Override
    public void onDeactivate() {
       for (PacketMine.MyBlock block : this.blocks) {
+         if (block.mining) {
+            this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.ABORT_DESTROY_BLOCK, block.blockPos, block.direction));
+         }
          this.blockPool.free(block);
       }
 
       this.blocks.clear();
-      if (this.shouldUpdateSlot) {
-         this.mc.player.connection.send(new ServerboundSetCarriedItemPacket(this.mc.player.getInventory().selected));
-         this.shouldUpdateSlot = false;
+      this.combatTimer = 0;
+   }
+
+   @EventHandler
+   private void onAttackEntity(AttackEntityEvent event) {
+      this.combatTimer = 20;
+   }
+
+   public boolean isCombatActive() {
+      if (!this.pauseOnCombat.get()) {
+         return false;
       }
+      if (this.combatTimer > 0) {
+         return true;
+      }
+      if (this.mc.hitResult instanceof EntityHitResult eHit && eHit.getEntity() != null) {
+         return true;
+      }
+      return false;
    }
 
    @EventHandler
    private void onStartBreakingBlock(StartBreakingBlockEvent event) {
       if (BlockUtils.canBreak(event.blockPos)) {
          event.cancel();
-         this.swapped = false;
          if (!this.isMiningBlock(event.blockPos)) {
             this.blocks.add(this.blockPool.get().set(event));
          }
@@ -153,28 +204,14 @@ public class PacketMine extends Module {
 
    @EventHandler
    private void onTick(TickEvent.Pre event) {
-      this.blocks.removeIf(PacketMine.MyBlock::shouldRemove);
-      if (this.shouldUpdateSlot) {
-         this.mc.player.connection.send(new ServerboundSetCarriedItemPacket(this.mc.player.getInventory().selected));
-         this.shouldUpdateSlot = false;
+      if (this.combatTimer > 0) {
+         this.combatTimer--;
       }
+
+      this.blocks.removeIf(PacketMine.MyBlock::shouldRemove);
 
       if (!this.blocks.isEmpty()) {
          this.blocks.getFirst().mine();
-      }
-
-      if (!this.swapped && this.autoSwitch.get() && (!this.mc.player.isUsingItem() || !this.notOnUse.get())) {
-         for (PacketMine.MyBlock block : this.blocks) {
-            if (block.isReady()) {
-               FindItemResult slot = InvUtils.findFastestTool(block.blockState);
-               if (slot.found() && this.mc.player.getInventory().selected != slot.slot()) {
-                  this.mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot.slot()));
-                  this.swapped = true;
-                  this.shouldUpdateSlot = true;
-                  break;
-               }
-            }
-         }
       }
    }
 
@@ -197,6 +234,8 @@ public class PacketMine extends Module {
       public int timer;
       public boolean mining;
       public double progress;
+      public boolean completed;
+      public int readyTicks;
 
       public PacketMine.MyBlock set(StartBreakingBlockEvent event) {
          this.blockPos = event.blockPos;
@@ -206,26 +245,38 @@ public class PacketMine extends Module {
          this.timer = PacketMine.this.delay.get();
          this.mining = false;
          this.progress = 0.0;
+         this.completed = false;
+         this.readyTicks = 0;
          return this;
       }
 
       public boolean shouldRemove() {
-         boolean remove = PacketMine.this.mc.level.getBlockState(this.blockPos).getBlock() != this.block
-            || Utils.distance(
-                  PacketMine.this.mc.player.getX() - 0.5,
-                  PacketMine.this.mc.player.getY() + (double)PacketMine.this.mc.player.getEyeHeight(PacketMine.this.mc.player.getPose()),
-                  PacketMine.this.mc.player.getZ() - 0.5,
-                  (double)(this.blockPos.getX() + this.direction.getStepX()),
-                  (double)(this.blockPos.getY() + this.direction.getStepY()),
-                  (double)(this.blockPos.getZ() + this.direction.getStepZ())
-               )
-               > PacketMine.this.mc.player.blockInteractionRange();
-         if (remove) {
-            PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.ABORT_DESTROY_BLOCK, this.blockPos, this.direction));
-            PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+         boolean blockBroken = PacketMine.this.mc.level.getBlockState(this.blockPos).getBlock() != this.block;
+         if (blockBroken) {
+            return true;
          }
 
-         return remove;
+         boolean outOfRange = Utils.distance(
+               PacketMine.this.mc.player.getX() - 0.5,
+               PacketMine.this.mc.player.getY() + (double)PacketMine.this.mc.player.getEyeHeight(PacketMine.this.mc.player.getPose()),
+               PacketMine.this.mc.player.getZ() - 0.5,
+               (double)(this.blockPos.getX() + this.direction.getStepX()),
+               (double)(this.blockPos.getY() + this.direction.getStepY()),
+               (double)(this.blockPos.getZ() + this.direction.getStepZ())
+            )
+            > PacketMine.this.mc.player.blockInteractionRange();
+         if (outOfRange) {
+            PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.ABORT_DESTROY_BLOCK, this.blockPos, this.direction));
+            PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+            return true;
+         }
+
+         if (this.readyTicks > 80) {
+            PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.ABORT_DESTROY_BLOCK, this.blockPos, this.direction));
+            return true;
+         }
+
+         return false;
       }
 
       public boolean isReady() {
@@ -233,10 +284,29 @@ public class PacketMine extends Module {
       }
 
       public void mine() {
-         if (PacketMine.this.rotate.get()) {
-            Rotations.rotate(Rotations.getYaw(this.blockPos), Rotations.getPitch(this.blockPos), 50, this::sendMinePackets);
-         } else {
-            this.sendMinePackets();
+         if (!this.mining) {
+            if (PacketMine.this.rotate.get()) {
+               Rotations.rotate(Rotations.getYaw(this.blockPos), Rotations.getPitch(this.blockPos), 50, this::sendStartMinePackets);
+            } else {
+               this.sendStartMinePackets();
+            }
+            return;
+         }
+
+         if (this.completed) {
+            this.readyTicks++;
+            if (this.readyTicks > 25 && this.readyTicks % 15 == 0) {
+               if (PacketMine.this.rotate.get()) {
+                  Rotations.rotate(Rotations.getYaw(this.blockPos), Rotations.getPitch(this.blockPos), 50, () -> {
+                     PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+                     PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+                  });
+               } else {
+                  PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+                  PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+               }
+            }
+            return;
          }
 
          double bestScore = -1.0;
@@ -250,20 +320,67 @@ public class PacketMine extends Module {
             }
          }
 
-         this.progress = this.progress
-            + BlockUtils.getBreakDelta(bestSlot != -1 ? bestSlot : PacketMine.this.mc.player.getInventory().selected, this.blockState);
+         this.progress += BlockUtils.getBreakDelta(bestSlot != -1 ? bestSlot : PacketMine.this.mc.player.getInventory().selected, this.blockState);
+
+         if (this.progress >= 1.0) {
+            if (PacketMine.this.isCombatActive()) {
+               return;
+            }
+
+            if (PacketMine.this.rotate.get()) {
+               Rotations.rotate(Rotations.getYaw(this.blockPos), Rotations.getPitch(this.blockPos), 50, this::sendStopMinePackets);
+            } else {
+               this.sendStopMinePackets();
+            }
+         }
       }
 
-      private void sendMinePackets() {
+      private void sendStartMinePackets() {
          if (this.timer <= 0) {
             if (!this.mining) {
                PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.START_DESTROY_BLOCK, this.blockPos, this.direction));
-               PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+               PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
                this.mining = true;
+
+               if (PacketMine.this.mode.get() == PacketMine.Mode.Instant) {
+                  PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+                  PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+                  this.completed = true;
+               }
             }
          } else {
             this.timer--;
          }
+      }
+
+      private void sendStopMinePackets() {
+         if (PacketMine.this.autoSwitch.get()) {
+            if (PacketMine.this.notOnUse.get() && PacketMine.this.mc.player.isUsingItem()) {
+               return;
+            }
+
+            FindItemResult tool = InvUtils.findFastestTool(this.blockState);
+            if (tool.found() && PacketMine.this.mc.player.getInventory().selected != tool.slot()) {
+               if (PacketMine.this.silentSwitch.get()) {
+                  PacketMine.this.mc.getConnection().send(new ServerboundSetCarriedItemPacket(tool.slot()));
+                  PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+                  PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+                  PacketMine.this.mc.getConnection().send(new ServerboundSetCarriedItemPacket(PacketMine.this.mc.player.getInventory().selected));
+                  this.completed = true;
+                  return;
+               } else {
+                  InvUtils.swap(tool.slot(), false);
+                  PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+                  PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+                  this.completed = true;
+                  return;
+               }
+            }
+         }
+
+         PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.STOP_DESTROY_BLOCK, this.blockPos, this.direction));
+         PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
+         this.completed = true;
       }
 
       public void render(Render3DEvent event) {
@@ -290,5 +407,10 @@ public class PacketMine extends Module {
             event.renderer.box(x1, y1, z1, x2, y2, z2, PacketMine.this.sideColor.get(), PacketMine.this.lineColor.get(), PacketMine.this.shapeMode.get(), 0);
          }
       }
+   }
+
+   public static enum Mode {
+      Normal,
+      Instant;
    }
 }
