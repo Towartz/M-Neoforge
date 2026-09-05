@@ -22,7 +22,6 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.world.phys.BlockHitResult;
 
 public class Excavator extends Module {
-   private final IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
    private final SettingGroup sgRendering = this.settings.createGroup("Rendering");
    private final Setting<Keybind> selectionBind = this.sgGeneral
@@ -58,11 +57,28 @@ public class Excavator extends Module {
       super(Categories.World, "excavator", "Excavate a selection area.");
    }
 
+   private IBaritone getBaritone() {
+      return BaritoneAPI.getProvider() != null ? BaritoneAPI.getProvider().getPrimaryBaritone() : null;
+   }
+
+   @Override
+   public void onActivate() {
+      if (getBaritone() == null) {
+         this.error("Baritone is not available.", new Object[0]);
+         this.toggle();
+         return;
+      }
+      this.status = Excavator.Status.SEL_START;
+   }
+
    @Override
    public void onDeactivate() {
-      this.baritone.getSelectionManager().removeSelection(this.baritone.getSelectionManager().getLastSelection());
-      if (this.baritone.getBuilderProcess().isActive()) {
-         this.baritone.getCommandManager().execute("stop");
+      IBaritone baritone = this.getBaritone();
+      if (baritone != null) {
+         baritone.getSelectionManager().removeSelection(baritone.getSelectionManager().getLastSelection());
+         if (baritone.getBuilderProcess().isActive()) {
+            baritone.getCommandManager().execute("stop");
+         }
       }
 
       this.status = Excavator.Status.SEL_START;
@@ -99,8 +115,11 @@ public class Excavator extends Module {
                this.info("End corner set: (%d, %d, %d)".formatted(this.end.getX(), this.end.getY(), this.end.getZ()), new Object[0]);
             }
 
-            this.baritone.getSelectionManager().addSelection(this.start, this.end);
-            this.baritone.getBuilderProcess().clearArea(this.start, this.end);
+            IBaritone baritone = this.getBaritone();
+            if (baritone != null) {
+               baritone.getSelectionManager().addSelection(this.start, this.end);
+               baritone.getBuilderProcess().clearArea(this.start, this.end);
+            }
          }
       }
    }
@@ -113,12 +132,15 @@ public class Excavator extends Module {
          }
 
          event.renderer.box(result.getBlockPos(), this.sideColor.get(), this.lineColor.get(), this.shapeMode.get(), 0);
-      } else if (this.status == Excavator.Status.WORKING && !this.baritone.getBuilderProcess().isActive()) {
-         if (this.keepActive.get()) {
-            this.baritone.getSelectionManager().removeSelection(this.baritone.getSelectionManager().getLastSelection());
-            this.status = Excavator.Status.SEL_START;
-         } else {
-            this.toggle();
+      } else if (this.status == Excavator.Status.WORKING) {
+         IBaritone baritone = this.getBaritone();
+         if (baritone != null && !baritone.getBuilderProcess().isActive()) {
+            if (this.keepActive.get()) {
+               baritone.getSelectionManager().removeSelection(baritone.getSelectionManager().getLastSelection());
+               this.status = Excavator.Status.SEL_START;
+            } else {
+               this.toggle();
+            }
          }
       }
    }

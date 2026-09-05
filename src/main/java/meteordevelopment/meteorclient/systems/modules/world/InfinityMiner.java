@@ -88,8 +88,6 @@ public class InfinityMiner extends Module {
             .defaultValue(Boolean.valueOf(false))
             .build()
       );
-   private final IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-   private final Settings baritoneSettings = BaritoneAPI.getSettings();
    private final MutableBlockPos homePos = new MutableBlockPos();
    private boolean prevMineScanDroppedItems;
    private boolean repairing;
@@ -102,28 +100,59 @@ public class InfinityMiner extends Module {
       );
    }
 
+   private IBaritone getBaritone() {
+      return BaritoneAPI.getProvider() != null ? BaritoneAPI.getProvider().getPrimaryBaritone() : null;
+   }
+
+   private Settings getSettings() {
+      return BaritoneAPI.getSettings();
+   }
+
    @Override
    public void onActivate() {
-      this.prevMineScanDroppedItems = (Boolean)this.baritoneSettings.mineScanDroppedItems.value;
-      this.baritoneSettings.mineScanDroppedItems.value = true;
-      this.homePos.set(this.mc.player.blockPosition());
+      IBaritone baritone = this.getBaritone();
+      Settings settings = this.getSettings();
+      if (baritone == null || settings == null) {
+         this.error("Baritone is not available.", new Object[0]);
+         this.toggle();
+         return;
+      }
+
+      this.prevMineScanDroppedItems = (Boolean)settings.mineScanDroppedItems.value;
+      settings.mineScanDroppedItems.value = true;
+      if (this.mc.player != null) {
+         this.homePos.set(this.mc.player.blockPosition());
+      }
       this.repairing = false;
    }
 
    @Override
    public void onDeactivate() {
-      this.baritone.getPathingBehavior().cancelEverything();
-      this.baritoneSettings.mineScanDroppedItems.value = this.prevMineScanDroppedItems;
+      IBaritone baritone = this.getBaritone();
+      Settings settings = this.getSettings();
+      if (baritone != null) {
+         baritone.getPathingBehavior().cancelEverything();
+      }
+      if (settings != null) {
+         settings.mineScanDroppedItems.value = this.prevMineScanDroppedItems;
+      }
    }
 
    @EventHandler
    private void onTick(TickEvent.Post event) {
+      IBaritone baritone = this.getBaritone();
+      if (baritone == null) {
+         this.error("Baritone is not available.", new Object[0]);
+         this.toggle();
+         return;
+      }
+
       if (this.isFull()) {
          if (this.walkHome.get()) {
             if (this.isBaritoneNotWalking()) {
                this.info("Walking home.", new Object[0]);
-               this.baritone.getCustomGoalProcess().setGoalAndPath(new GoalBlock(this.homePos));
-            } else if (this.mc.player.blockPosition().equals(this.homePos) && this.logOut.get()) {
+               baritone.getCustomGoalProcess().setGoalAndPath(new GoalBlock(this.homePos));
+            } else if (this.mc.player != null && this.mc.player.blockPosition().equals(this.homePos) && this.logOut.get()) {
                this.logOut();
             }
          } else if (this.logOut.get()) {
@@ -190,28 +219,36 @@ public class InfinityMiner extends Module {
    }
 
    private void mineTargetBlocks() {
+      IBaritone baritone = this.getBaritone();
+      if (baritone == null) return;
       Block[] array = new Block[this.targetBlocks.get().size()];
-      this.baritone.getPathingBehavior().cancelEverything();
-      this.baritone.getMineProcess().mine(this.targetBlocks.get().toArray(array));
+      baritone.getPathingBehavior().cancelEverything();
+      baritone.getMineProcess().mine(this.targetBlocks.get().toArray(array));
    }
 
    private void mineRepairBlocks() {
+      IBaritone baritone = this.getBaritone();
+      if (baritone == null) return;
       Block[] array = new Block[this.repairBlocks.get().size()];
-      this.baritone.getPathingBehavior().cancelEverything();
-      this.baritone.getMineProcess().mine(this.repairBlocks.get().toArray(array));
+      baritone.getPathingBehavior().cancelEverything();
+      baritone.getMineProcess().mine(this.repairBlocks.get().toArray(array));
    }
 
    private void logOut() {
       this.toggle();
-      this.mc.player.connection.send(new ClientboundDisconnectPacket(Component.literal("[Infinity Miner] Inventory is full.")));
+      if (this.mc.player != null && this.mc.player.connection != null) {
+         this.mc.player.connection.send(new ClientboundDisconnectPacket(Component.literal("[Infinity Miner] Inventory is full.")));
+      }
    }
 
    private boolean isBaritoneNotMining() {
-      return !(this.baritone.getPathingControlManager().mostRecentInControl().orElse(null) instanceof IMineProcess);
+      IBaritone baritone = this.getBaritone();
+      return baritone == null || !(baritone.getPathingControlManager().mostRecentInControl().orElse(null) instanceof IMineProcess);
    }
 
    private boolean isBaritoneNotWalking() {
-      return !(this.baritone.getPathingControlManager().mostRecentInControl().orElse(null) instanceof ICustomGoalProcess);
+      IBaritone baritone = this.getBaritone();
+      return baritone == null || !(baritone.getPathingControlManager().mostRecentInControl().orElse(null) instanceof ICustomGoalProcess);
    }
 
    private boolean filterBlocks(Block block) {

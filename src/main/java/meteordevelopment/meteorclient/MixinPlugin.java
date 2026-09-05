@@ -19,6 +19,16 @@ public class MixinPlugin implements IMixinConfigPlugin {
    private static boolean isLithiumPresent;
    public static boolean isIrisPresent;
    private static boolean isVFPPresent;
+   private static boolean isBaritonePresent;
+
+   private static boolean doesClassExist(String className) {
+      try {
+         Class.forName(className, false, Thread.currentThread().getContextClassLoader());
+         return true;
+      } catch (Throwable t) {
+         return false;
+      }
+   }
 
    private static boolean isModLoaded(String modId) {
       try {
@@ -74,6 +84,7 @@ public class MixinPlugin implements IMixinConfigPlugin {
          isLithiumPresent = isModLoaded("lithium") || isModLoaded("radium");
          isIrisPresent = isModLoaded("iris") || isModLoaded("oculus");
          isVFPPresent = isModLoaded("viafabricplus") || isModLoaded("viaforge");
+         isBaritonePresent = isModLoaded("baritone") || doesClassExist("baritone.api.BaritoneAPI");
          loaded = true;
       }
    }
@@ -87,8 +98,14 @@ public class MixinPlugin implements IMixinConfigPlugin {
          throw new RuntimeException("Mixin " + mixinClassName + " is not in the mixin package");
       } else if (mixinClassName.endsWith("PlayerEntityRendererMixin")) {
          return !isOriginsPresent;
+      } else if (mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.baritone")) {
+         return isBaritonePresent;
       } else if (mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.sodium")) {
-         return isSodiumPresent;
+         if (!isSodiumPresent) return false;
+         if (mixinClassName.contains("FluidRendererImpl")) {
+            return doesClassExist("net.caffeinemc.mods.sodium.fabric.render.FluidRendererImpl");
+         }
+         return true;
       } else if (mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.indigo")) {
          return isIndigoPresent;
       } else if (mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.lithium")) {

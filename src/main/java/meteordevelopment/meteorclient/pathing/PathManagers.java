@@ -8,6 +8,15 @@ public class PathManagers {
    private static IPathManager INSTANCE = new NopPathManager();
 
    public static IPathManager get() {
+      if (INSTANCE instanceof NopPathManager && BaritoneUtils.IS_AVAILABLE) {
+         try {
+            if (baritone.api.BaritoneAPI.getProvider() != null && baritone.api.BaritoneAPI.getProvider().getPrimaryBaritone() != null) {
+               INSTANCE = new BaritonePathManager();
+               MeteorClient.LOG.info("Path Manager (deferred init): {}", INSTANCE.getName());
+            }
+         } catch (Throwable ignored) {
+         }
+      }
       return INSTANCE;
    }
 
@@ -24,7 +33,13 @@ public class PathManagers {
       if (exists("baritone.api.BaritoneAPI")) {
          BaritoneUtils.IS_AVAILABLE = true;
          if (INSTANCE instanceof NopPathManager) {
-            INSTANCE = new BaritonePathManager();
+            try {
+               if (baritone.api.BaritoneAPI.getProvider() != null && baritone.api.BaritoneAPI.getProvider().getPrimaryBaritone() != null) {
+                  INSTANCE = new BaritonePathManager();
+               }
+            } catch (Throwable t) {
+               MeteorClient.LOG.warn("Could not initialize BaritonePathManager during PreInit: {}", t.getMessage());
+            }
          }
       }
 

@@ -281,10 +281,15 @@ public class LocateCommand extends Command {
 
    @Nullable
    private Vec3 findByBlockList(List<Block> blockList) {
+      if (BaritoneAPI.getProvider() == null || BaritoneAPI.getProvider().getPrimaryBaritone() == null) {
+         this.error("Baritone is not available.", new Object[0]);
+         return null;
+      }
+
       List<BlockPos> posList = BaritoneAPI.getProvider()
          .getWorldScanner()
          .scanChunkRadius(BaritoneAPI.getProvider().getPrimaryBaritone().getPlayerContext(), blockList, 64, 10, 32);
-      if (posList.isEmpty()) {
+      if (posList == null || posList.isEmpty()) {
          return null;
       } else {
          if (posList.size() < 3) {

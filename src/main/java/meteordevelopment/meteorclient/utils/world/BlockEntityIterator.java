@@ -1,7 +1,9 @@
 package meteordevelopment.meteorclient.utils.world;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import meteordevelopment.meteorclient.mixin.ChunkAccessor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -16,28 +18,33 @@ public class BlockEntityIterator implements Iterator<BlockEntity> {
    }
 
    private void nextChunk() {
+      this.blockEntities = null;
       while (this.chunks.hasNext()) {
-         Map<BlockPos, BlockEntity> blockEntityMap = ((ChunkAccessor)this.chunks.next()).getBlockEntities();
-         if (!blockEntityMap.isEmpty()) {
-            this.blockEntities = blockEntityMap.values().iterator();
-            break;
+         ChunkAccess chunk = this.chunks.next();
+         if (chunk instanceof ChunkAccessor accessor) {
+            Map<BlockPos, BlockEntity> blockEntityMap = accessor.getBlockEntities();
+            if (blockEntityMap != null && !blockEntityMap.isEmpty()) {
+               this.blockEntities = new ArrayList<>(blockEntityMap.values()).iterator();
+               return;
+            }
          }
       }
    }
 
    @Override
    public boolean hasNext() {
-      if (this.blockEntities == null) {
-         return false;
-      } else if (this.blockEntities.hasNext()) {
+      if (this.blockEntities != null && this.blockEntities.hasNext()) {
          return true;
-      } else {
-         this.nextChunk();
-         return this.blockEntities.hasNext();
       }
+      this.nextChunk();
+      return this.blockEntities != null && this.blockEntities.hasNext();
    }
 
+   @Override
    public BlockEntity next() {
+      if (!hasNext()) {
+         throw new NoSuchElementException();
+      }
       return this.blockEntities.next();
    }
 }

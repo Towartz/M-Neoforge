@@ -19,10 +19,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(value = {MineCommand.class}, remap = false)
 public abstract class MineCommandMixin {
-   @Shadow(remap = false)
-   @Final
-   protected IBaritone baritone;
-
    @Inject(
       method = {"execute"},
       at = {@At("HEAD")},
@@ -30,7 +26,7 @@ public abstract class MineCommandMixin {
       remap = false
    )
    private void onExecute(String label, IArgConsumer args, CallbackInfo ci) {
-      if (args.hasAny()) {
+      if (args.hasAny() && BaritoneAPI.getProvider() != null) {
          try {
             String first = args.peekString();
             int max = 0;
@@ -46,13 +42,16 @@ public abstract class MineCommandMixin {
                String lower = targetArg.trim().toLowerCase(Locale.ROOT);
                if (lower.equals("ores") || lower.equals("ore")) {
                   ci.cancel();
+                  IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                  if (baritone == null) return;
+
                   List<Block> ores = OreDiscovery.getOres();
                   List<BlockOptionalMeta> list = new ArrayList<>(ores.size());
                   for (Block ore : ores) {
                      list.add(new BlockOptionalMeta(ore));
                   }
-                  BaritoneAPI.getProvider().getWorldScanner().repack(this.baritone.getPlayerContext());
-                  this.baritone.getMineProcess().mine(max, list.toArray(new BlockOptionalMeta[0]));
+                  BaritoneAPI.getProvider().getWorldScanner().repack(baritone.getPlayerContext());
+                  baritone.getMineProcess().mine(max, list.toArray(new BlockOptionalMeta[0]));
                }
             }
          } catch (Throwable ignored) {

@@ -73,14 +73,20 @@ public class Mesh {
 
    public void begin() {
       if (this.building) {
-         throw new IllegalStateException("Mesh.begin() called while already building.");
-      } else {
-         this.verticesPointer = this.verticesPointerStart;
-         this.vertexI = 0;
-         this.indicesCount = 0;
-         this.building = true;
-         this.rendering3D = Utils.rendering3D;
-         if (this.rendering3D) {
+         try {
+            this.end();
+         } catch (Throwable ignored) {
+            this.building = false;
+         }
+      }
+
+      this.verticesPointer = this.verticesPointerStart;
+      this.vertexI = 0;
+      this.indicesCount = 0;
+      this.building = true;
+      this.rendering3D = Utils.rendering3D;
+      if (this.rendering3D) {
+         if (MeteorClient.mc.gameRenderer != null && MeteorClient.mc.gameRenderer.getMainCamera() != null) {
             Vec3 camera = MeteorClient.mc.gameRenderer.getMainCamera().getPosition();
             this.cameraX = camera.x;
             this.cameraZ = camera.z;
@@ -88,6 +94,9 @@ public class Mesh {
             this.cameraX = 0.0;
             this.cameraZ = 0.0;
          }
+      } else {
+         this.cameraX = 0.0;
+         this.cameraZ = 0.0;
       }
    }
 
@@ -216,8 +225,10 @@ public class Mesh {
             matrixStack.mul(matrices.last().pose());
          }
 
-         Vec3 cameraPos = MeteorClient.mc.gameRenderer.getMainCamera().getPosition();
-         matrixStack.translate(0.0F, (float)(-cameraPos.y), 0.0F);
+         if (MeteorClient.mc.gameRenderer != null && MeteorClient.mc.gameRenderer.getMainCamera() != null) {
+            Vec3 cameraPos = MeteorClient.mc.gameRenderer.getMainCamera().getPosition();
+            matrixStack.translate(0.0F, (float)(-cameraPos.y), 0.0F);
+         }
       }
 
       this.beganRendering = true;
@@ -235,7 +246,9 @@ public class Mesh {
          }
 
          this.beforeRender();
-         Shader.BOUND.setDefaults();
+         if (Shader.BOUND != null) {
+            Shader.BOUND.setDefaults();
+         }
          GL.bindVertexArray(this.vao);
          GL.drawElements(this.drawMode.getGL(), this.indicesCount, 5125);
          GL.bindVertexArray(0);

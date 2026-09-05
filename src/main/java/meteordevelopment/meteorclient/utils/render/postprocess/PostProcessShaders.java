@@ -21,25 +21,25 @@ public class PostProcessShaders {
    }
 
    public static void beginRender() {
-      CHAMS.beginRender();
-      ENTITY_OUTLINE.beginRender();
-      STORAGE_OUTLINE.beginRender();
+      if (CHAMS != null) CHAMS.beginRender();
+      if (ENTITY_OUTLINE != null) ENTITY_OUTLINE.beginRender();
+      if (STORAGE_OUTLINE != null) STORAGE_OUTLINE.beginRender();
    }
 
    public static void endRender() {
-      CHAMS.endRender();
-      ENTITY_OUTLINE.endRender();
+      if (CHAMS != null) CHAMS.endRender();
+      if (ENTITY_OUTLINE != null) ENTITY_OUTLINE.endRender();
    }
 
    public static void onResized(int width, int height) {
       if (MeteorClient.mc != null) {
-         CHAMS.onResized(width, height);
-         ENTITY_OUTLINE.onResized(width, height);
-         STORAGE_OUTLINE.onResized(width, height);
+         if (CHAMS != null) CHAMS.onResized(width, height);
+         if (ENTITY_OUTLINE != null) ENTITY_OUTLINE.onResized(width, height);
+         if (STORAGE_OUTLINE != null) STORAGE_OUTLINE.onResized(width, height);
       }
    }
 
    public static boolean isCustom(MultiBufferSource vcp) {
-      return vcp == CHAMS.vertexConsumerProvider || vcp == ENTITY_OUTLINE.vertexConsumerProvider;
+      return (CHAMS != null && vcp == CHAMS.vertexConsumerProvider) || (ENTITY_OUTLINE != null && vcp == ENTITY_OUTLINE.vertexConsumerProvider);
    }
 }

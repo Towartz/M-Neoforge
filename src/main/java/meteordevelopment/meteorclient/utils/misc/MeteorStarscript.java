@@ -103,7 +103,10 @@ public class MeteorStarscript {
          ss.set(
             "baritone",
             new ValueMap()
-               .set("is_pathing", () -> Value.bool(BaritoneAPI.getProvider().getPrimaryBaritone().getPathingBehavior().isPathing()))
+               .set("is_pathing", () -> {
+                  if (BaritoneAPI.getProvider() == null || BaritoneAPI.getProvider().getPrimaryBaritone() == null) return Value.bool(false);
+                  return Value.bool(BaritoneAPI.getProvider().getPrimaryBaritone().getPathingBehavior().isPathing());
+               })
                .set("distance_to_goal", MeteorStarscript::baritoneDistanceToGoal)
                .set("process", MeteorStarscript::baritoneProcess)
                .set("process_name", MeteorStarscript::baritoneProcessName)
@@ -463,11 +466,17 @@ public class MeteorStarscript {
    }
 
    private static Value baritoneProcess() {
+      if (BaritoneAPI.getProvider() == null || BaritoneAPI.getProvider().getPrimaryBaritone() == null) {
+         return Value.string("");
+      }
       Optional<IBaritoneProcess> process = BaritoneAPI.getProvider().getPrimaryBaritone().getPathingControlManager().mostRecentInControl();
       return Value.string(process.isEmpty() ? "" : process.get().displayName0());
    }
 
    private static Value baritoneProcessName() {
+      if (BaritoneAPI.getProvider() == null || BaritoneAPI.getProvider().getPrimaryBaritone() == null) {
+         return Value.string("");
+      }
       Optional<IBaritoneProcess> process = BaritoneAPI.getProvider().getPrimaryBaritone().getPathingControlManager().mostRecentInControl();
       if (process.isEmpty()) {
          return Value.string("");
@@ -496,7 +505,7 @@ public class MeteorStarscript {
    }
 
    private static Value baritoneETA() {
-      if (MeteorClient.mc.player == null) {
+      if (MeteorClient.mc.player == null || BaritoneAPI.getProvider() == null || BaritoneAPI.getProvider().getPrimaryBaritone() == null) {
          return Value.number(0.0);
       } else {
          Optional<Double> ticksTillGoal = BaritoneAPI.getProvider().getPrimaryBaritone().getPathingBehavior().estimatedTicksToGoal();
@@ -505,7 +514,9 @@ public class MeteorStarscript {
    }
 
    private static Value oppositeX(boolean camera) {
-      double x = camera ? MeteorClient.mc.gameRenderer.getMainCamera().getPosition().x : (MeteorClient.mc.player != null ? MeteorClient.mc.player.getX() : 0.0);
+      double x = (camera && MeteorClient.mc.gameRenderer != null && MeteorClient.mc.gameRenderer.getMainCamera() != null)
+         ? MeteorClient.mc.gameRenderer.getMainCamera().getPosition().x
+         : (MeteorClient.mc.player != null ? MeteorClient.mc.player.getX() : 0.0);
       Dimension dimension = PlayerUtils.getDimension();
       if (dimension == Dimension.Overworld) {
          x /= 8.0;
@@ -618,13 +629,16 @@ public class MeteorStarscript {
    }
 
    private static Value baritoneDistanceToGoal() {
+      if (BaritoneAPI.getProvider() == null || BaritoneAPI.getProvider().getPrimaryBaritone() == null) {
+         return Value.number(0.0);
+      }
       Goal goal = BaritoneAPI.getProvider().getPrimaryBaritone().getPathingBehavior().getGoal();
       return Value.number(goal != null && MeteorClient.mc.player != null ? goal.heuristic(MeteorClient.mc.player.blockPosition()) : 0.0);
    }
 
    private static Value posString(boolean opposite, boolean camera) {
       Vec3 pos;
-      if (camera) {
+      if (camera && MeteorClient.mc.gameRenderer != null && MeteorClient.mc.gameRenderer.getMainCamera() != null) {
          pos = MeteorClient.mc.gameRenderer.getMainCamera().getPosition();
       } else {
          pos = MeteorClient.mc.player != null ? MeteorClient.mc.player.position() : Vec3.ZERO;

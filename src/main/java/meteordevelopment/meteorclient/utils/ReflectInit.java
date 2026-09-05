@@ -22,34 +22,38 @@ public class ReflectInit {
 
    public static void registerPackages() {
       try {
-         reflections.add(new Reflections("meteordevelopment.meteorclient", Scanners.MethodsAnnotated));
-
          for (MeteorAddon var1 : AddonManager.ADDONS) {
             String var2 = var1.getPackage();
             if (var2 != null && !var2.isBlank()) {
-               reflections.add(new Reflections(var2, Scanners.MethodsAnnotated));
+               try {
+                  reflections.add(new Reflections(var2, Scanners.MethodsAnnotated));
+               } catch (Throwable t) {
+                  System.err.println("[Meteor] Addon reflection scan error for " + var2 + ": " + t);
+               }
             }
          }
       } catch (Throwable var3) {
-         System.err.println("[Meteor-Patch] Reflections registerPackages warning: " + var3);
+         System.err.println("[Meteor] Reflections registerPackages notice: " + var3);
       }
    }
 
    public static <T extends Annotation> void init(Class<T> var0) {
-      Set<Method> var1 = new HashSet<>();
+      runFallback(var0);
 
+      if (reflections.isEmpty()) {
+         return;
+      }
+
+      Set<Method> var1 = new HashSet<>();
       try {
          for (Reflections var3 : reflections) {
             var1.addAll(var3.getMethodsAnnotatedWith(var0));
          }
       } catch (Throwable var4) {
-         System.err.println("[Meteor-Patch] Reflections getMethodsAnnotatedWith warning: " + var4);
+         System.err.println("[Meteor] Reflections addon scanner notice: " + var4);
       }
 
-      if (var1.isEmpty()) {
-         System.out.println("[Meteor-Patch] Reflections found 0 tasks for " + var0.getSimpleName() + ", using direct static fallback init!");
-         runFallback(var0);
-      } else {
+      if (!var1.isEmpty()) {
          Map<Class<?>, List<Method>> var5 = var1.stream().collect(Collectors.groupingBy(Method::getDeclaringClass));
 
          while (!var1.isEmpty()) {
@@ -109,13 +113,12 @@ public class ReflectInit {
 
    private static void call(String var0, String var1) {
       try {
-         Class var2 = Class.forName(var0);
+         Class<?> var2 = Class.forName(var0);
          Method var3 = var2.getDeclaredMethod(var1);
          makeAccessible(var3);
          var3.invoke(null);
-         System.out.println("[Meteor-Patch] Successfully executed " + var0 + "." + var1 + "()");
       } catch (Throwable var4) {
-         System.err.println("[Meteor-Patch] Failed calling " + var0 + "." + var1 + "(): " + var4);
+         System.err.println("[Meteor] Failed calling " + var0 + "." + var1 + "(): " + var4);
       }
    }
 

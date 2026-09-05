@@ -32,6 +32,8 @@ import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.meteorclient.utils.world.Dimension;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos.MutableBlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -160,9 +162,32 @@ public class BlockESP extends Module {
       }
    }
 
+   public boolean isTarget(Block block) {
+      if (block == null) return false;
+      List<Block> targetList = this.blocks.get();
+      if (targetList == null || targetList.isEmpty()) return false;
+      if (targetList.contains(block)) return true;
+      ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
+      for (Block target : targetList) {
+         if (BuiltInRegistries.BLOCK.getKey(target).equals(id)) {
+            return true;
+         }
+      }
+      return false;
+   }
+
    ESPBlockData getBlockData(Block block) {
-      ESPBlockData blockData = this.blockConfigs.get().get(block);
-      return blockData == null ? this.defaultBlockConfig.get() : blockData;
+      if (block == null) return this.defaultBlockConfig.get();
+      Map<Block, ESPBlockData> configs = this.blockConfigs.get();
+      ESPBlockData blockData = configs.get(block);
+      if (blockData != null) return blockData;
+      ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
+      for (Map.Entry<Block, ESPBlockData> entry : configs.entrySet()) {
+         if (BuiltInRegistries.BLOCK.getKey(entry.getKey()).equals(id)) {
+            return entry.getValue();
+         }
+      }
+      return this.defaultBlockConfig.get();
    }
 
    private void updateChunk(int x, int z) {
@@ -228,9 +253,11 @@ public class BlockESP extends Module {
       int bz = event.pos.getZ();
       int chunkX = bx >> 4;
       int chunkZ = bz >> 4;
+      boolean newIsTarget = this.isTarget(event.newState.getBlock());
+      boolean oldIsTarget = this.isTarget(event.oldState.getBlock());
+      boolean added = newIsTarget && !oldIsTarget;
+      boolean removed = !added && !newIsTarget && oldIsTarget;
       long key = ChunkPos.asLong(chunkX, chunkZ);
-      boolean added = this.blocks.get().contains(event.newState.getBlock()) && !this.blocks.get().contains(event.oldState.getBlock());
-      boolean removed = !added && !this.blocks.get().contains(event.newState.getBlock()) && this.blocks.get().contains(event.oldState.getBlock());
       if (added || removed) {
          this.workerThread.submit(() -> {
             synchronized (this.chunks) {

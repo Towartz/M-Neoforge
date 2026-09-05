@@ -31,27 +31,39 @@ public class RainbowColors {
    }
 
    public static void addSetting(Setting<SettingColor> setting) {
-      colorSettings.add(setting);
+      synchronized (colorSettings) {
+         colorSettings.add(setting);
+      }
    }
 
    public static void addSettingList(Setting<List<SettingColor>> setting) {
-      colorListSettings.add(setting);
+      synchronized (colorListSettings) {
+         colorListSettings.add(setting);
+      }
    }
 
    public static void removeSetting(Setting<SettingColor> setting) {
-      colorSettings.remove(setting);
+      synchronized (colorSettings) {
+         colorSettings.remove(setting);
+      }
    }
 
    public static void removeSettingList(Setting<List<SettingColor>> setting) {
-      colorListSettings.remove(setting);
+      synchronized (colorListSettings) {
+         colorListSettings.remove(setting);
+      }
    }
 
    public static void add(SettingColor color) {
-      colors.add(color);
+      synchronized (colors) {
+         colors.add(color);
+      }
    }
 
    public static void register(Runnable runnable) {
-      listeners.add(runnable);
+      synchronized (listeners) {
+         listeners.add(runnable);
+      }
    }
 
    @EventHandler
@@ -59,47 +71,58 @@ public class RainbowColors {
       GLOBAL.setSpeed(Config.get().rainbowSpeed.get() / 100.0);
       GLOBAL.getNext();
 
-      for (int i = 0; i < colorSettings.size(); i++) {
-         Setting<SettingColor> setting = colorSettings.get(i);
-         if (setting.module == null || setting.module.isActive()) {
-            SettingColor sc = setting.get();
-            if (sc != null && sc.rainbow) {
-               sc.update();
+      synchronized (colorSettings) {
+         for (int i = 0; i < colorSettings.size(); i++) {
+            Setting<SettingColor> setting = colorSettings.get(i);
+            if (setting != null && (setting.module == null || setting.module.isActive())) {
+               SettingColor sc = setting.get();
+               if (sc != null && sc.rainbow) {
+                  sc.update();
+               }
             }
          }
       }
 
-      for (int i = 0; i < colorListSettings.size(); i++) {
-         Setting<List<SettingColor>> settingx = colorListSettings.get(i);
-         if (settingx.module == null || settingx.module.isActive()) {
-            List<SettingColor> list = settingx.get();
-            if (list != null) {
-               for (int j = 0; j < list.size(); j++) {
-                  SettingColor color = list.get(j);
-                  if (color != null && color.rainbow) {
-                     color.update();
+      synchronized (colorListSettings) {
+         for (int i = 0; i < colorListSettings.size(); i++) {
+            Setting<List<SettingColor>> settingx = colorListSettings.get(i);
+            if (settingx != null && (settingx.module == null || settingx.module.isActive())) {
+               List<SettingColor> list = settingx.get();
+               if (list != null) {
+                  for (int j = 0; j < list.size(); j++) {
+                     SettingColor color = list.get(j);
+                     if (color != null && color.rainbow) {
+                        color.update();
+                     }
                   }
                }
             }
          }
       }
 
-      for (int i = 0; i < colors.size(); i++) {
-         SettingColor color = colors.get(i);
-         if (color != null && color.rainbow) {
-            color.update();
+      synchronized (colors) {
+         for (int i = 0; i < colors.size(); i++) {
+            SettingColor color = colors.get(i);
+            if (color != null && color.rainbow) {
+               color.update();
+            }
          }
       }
 
-      for (Waypoint waypoint : Waypoints.get()) {
-         SettingColor wc = waypoint.color.get();
-         if (wc != null && wc.rainbow) {
-            wc.update();
+      if (Waypoints.get() != null) {
+         for (Waypoint waypoint : Waypoints.get()) {
+            if (waypoint != null && waypoint.color != null) {
+               SettingColor wc = waypoint.color.get();
+               if (wc != null && wc.rainbow) {
+                  wc.update();
+               }
+            }
          }
       }
 
-      if (MeteorClient.mc.screen instanceof WidgetScreen) {
+      if (MeteorClient.mc.screen instanceof WidgetScreen && GuiThemes.get() != null && GuiThemes.get().settings != null) {
          for (SettingGroup group : GuiThemes.get().settings) {
+            if (group == null) continue;
             for (Setting<?> settingxx : group) {
                if (settingxx instanceof ColorSetting) {
                   SettingColor sc = (SettingColor)settingxx.get();
@@ -111,8 +134,13 @@ public class RainbowColors {
          }
       }
 
-      for (int i = 0; i < listeners.size(); i++) {
-         listeners.get(i).run();
+      synchronized (listeners) {
+         for (int i = 0; i < listeners.size(); i++) {
+            try {
+               listeners.get(i).run();
+            } catch (Throwable ignored) {
+            }
+         }
       }
    }
 }

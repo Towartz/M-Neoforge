@@ -40,8 +40,12 @@ public class PlayerHeadUtils {
          if (base64Textures == null) {
             return null;
          } else {
-            TexturesJson textures = (TexturesJson)new Gson().fromJson(new String(Base64.getDecoder().decode(base64Textures)), TexturesJson.class);
-            return textures.textures.SKIN == null ? null : textures.textures.SKIN.url;
+            try {
+               TexturesJson textures = new Gson().fromJson(new String(Base64.getDecoder().decode(base64Textures)), TexturesJson.class);
+               return (textures != null && textures.textures != null && textures.textures.SKIN != null) ? textures.textures.SKIN.url : null;
+            } catch (Throwable ignored) {
+               return null;
+            }
          }
       }
    }
