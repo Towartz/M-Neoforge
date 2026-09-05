@@ -14,6 +14,7 @@ import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.combat.AutoWeapon;
 import meteordevelopment.meteorclient.systems.modules.render.Xray;
 import meteordevelopment.meteorclient.systems.modules.world.InfinityMiner;
 import meteordevelopment.meteorclient.utils.Utils;
@@ -152,7 +153,8 @@ public class AutoTool extends Module {
       if (!Modules.get().isActive(InfinityMiner.class)) {
          if (this.mc.player == null) return;
 
-         if (this.mc.hitResult instanceof EntityHitResult) {
+         AutoWeapon autoWeapon = Modules.get().get(AutoWeapon.class);
+         if ((autoWeapon != null && autoWeapon.isActive() && autoWeapon.isCombatActive()) || this.mc.hitResult instanceof EntityHitResult) {
             InvUtils.clearPreviousSlot();
             this.swappedSlot = -1;
             this.shouldSwitch = false;
@@ -194,7 +196,8 @@ public class AutoTool extends Module {
    )
    private void onStartBreakingBlock(StartBreakingBlockEvent event) {
       if (!Modules.get().isActive(InfinityMiner.class)) {
-         if (this.mc.hitResult instanceof EntityHitResult) {
+         AutoWeapon autoWeapon = Modules.get().get(AutoWeapon.class);
+         if ((autoWeapon != null && autoWeapon.isActive() && autoWeapon.isCombatActive()) || this.mc.hitResult instanceof EntityHitResult) {
             return;
          }
 
@@ -246,7 +249,9 @@ public class AutoTool extends Module {
 
             currentStack = this.mc.player.getMainHandItem();
             if (this.shouldStopUsing(currentStack) && isTool(currentStack)) {
-               this.mc.options.keyAttack.setDown(false);
+               if (this.bestSlot == -1) {
+                  this.mc.options.keyAttack.setDown(false);
+               }
                event.cancel();
             }
          }

@@ -22,6 +22,7 @@ import meteordevelopment.meteorclient.utils.misc.Pool;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
+import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
@@ -50,6 +51,12 @@ public class PacketMine extends Module {
             .defaultValue(PacketMine.Mode.Normal)
             .build()
       );
+
+   private final Setting<Integer> maxBlocks = this.sgGeneral
+      .add(new IntSetting.Builder().name("max-blocks").description("Maximum number of concurrent blocks to mine.").defaultValue(Integer.valueOf(1)).min(1).max(2).sliderMax(2).build());
+
+   private final Setting<Boolean> autoRebreak = this.sgGeneral
+      .add(new BoolSetting.Builder().name("auto-rebreak").description("Automatically re-mines if a block is placed back at the broken position.").defaultValue(Boolean.valueOf(true)).build());
 
    private final Setting<Integer> delay = this.sgGeneral
       .add(new IntSetting.Builder().name("delay").description("Delay between mining blocks in ticks.").defaultValue(Integer.valueOf(1)).min(0).build());
@@ -106,6 +113,25 @@ public class PacketMine extends Module {
                .defaultValue(ShapeMode.Both))
             .build()
       );
+
+   private final Setting<PacketMine.RenderMode> renderMode = this.sgRender
+      .add(
+         new EnumSetting.Builder<PacketMine.RenderMode>()
+            .name("render-mode")
+            .description("How the mining progress is animated.")
+            .defaultValue(PacketMine.RenderMode.Grow)
+            .build()
+      );
+
+   private final Setting<PacketMine.ColorMode> colorMode = this.sgRender
+      .add(
+         new EnumSetting.Builder<PacketMine.ColorMode>()
+            .name("color-mode")
+            .description("Whether to use flat colors or interpolate smoothly from start to ready.")
+            .defaultValue(PacketMine.ColorMode.Gradient)
+            .build()
+      );
+
    private final Setting<SettingColor> readySideColor = this.sgRender
       .add(
          new ColorSetting.Builder()
@@ -141,6 +167,8 @@ public class PacketMine extends Module {
    private final Pool<PacketMine.MyBlock> blockPool = new Pool<>(() -> new PacketMine.MyBlock());
    public final List<PacketMine.MyBlock> blocks = new ArrayList<>();
    private int combatTimer;
+   private BlockPos lastBrokenPos;
+   private Direction lastBrokenDirection;
 
    public PacketMine() {
       super(Categories.World, "packet-mine", "Sends packets to mine blocks without the mining animation.");
@@ -149,6 +177,8 @@ public class PacketMine extends Module {
    @Override
    public void onActivate() {
       this.combatTimer = 0;
+      this.lastBrokenPos = null;
+      this.lastBrokenDirection = null;
    }
 
    @Override
@@ -162,6 +192,8 @@ public class PacketMine extends Module {
 
       this.blocks.clear();
       this.combatTimer = 0;
+      this.lastBrokenPos = null;
+      this.lastBrokenDirection = null;
    }
 
    @EventHandler
@@ -187,6 +219,13 @@ public class PacketMine extends Module {
       if (BlockUtils.canBreak(event.blockPos)) {
          event.cancel();
          if (!this.isMiningBlock(event.blockPos)) {
+            while (this.blocks.size() >= this.maxBlocks.get() && !this.blocks.isEmpty()) {
+               PacketMine.MyBlock old = this.blocks.remove(this.blocks.size() - 1);
+               if (old.mining) {
+                  this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.ABORT_DESTROY_BLOCK, old.blockPos, old.direction));
+               }
+               this.blockPool.free(old);
+            }
             this.blocks.add(this.blockPool.get().set(event));
          }
       }
@@ -210,8 +249,20 @@ public class PacketMine extends Module {
 
       this.blocks.removeIf(PacketMine.MyBlock::shouldRemove);
 
-      if (!this.blocks.isEmpty()) {
-         this.blocks.getFirst().mine();
+      if (this.autoRebreak.get() && this.lastBrokenPos != null) {
+         if (this.blocks.size() < this.maxBlocks.get() && !this.isMiningBlock(this.lastBrokenPos)) {
+            BlockState state = this.mc.level.getBlockState(this.lastBrokenPos);
+            if (BlockUtils.canBreak(this.lastBrokenPos, state) && !state.isAir()) {
+               Direction dir = this.lastBrokenDirection != null ? this.lastBrokenDirection : BlockUtils.getDirection(this.lastBrokenPos);
+               this.blocks.add(this.blockPool.get().set(this.lastBrokenPos, dir));
+               this.lastBrokenPos = null;
+            }
+         }
+      }
+
+      int limit = Math.min(this.blocks.size(), this.maxBlocks.get());
+      for (int i = 0; i < limit; i++) {
+         this.blocks.get(i).mine();
       }
    }
 
@@ -238,8 +289,12 @@ public class PacketMine extends Module {
       public int readyTicks;
 
       public PacketMine.MyBlock set(StartBreakingBlockEvent event) {
-         this.blockPos = event.blockPos;
-         this.direction = event.direction;
+         return this.set(event.blockPos, event.direction);
+      }
+
+      public PacketMine.MyBlock set(BlockPos pos, Direction dir) {
+         this.blockPos = pos;
+         this.direction = dir != null ? dir : Direction.UP;
          this.blockState = PacketMine.this.mc.level.getBlockState(this.blockPos);
          this.block = this.blockState.getBlock();
          this.timer = PacketMine.this.delay.get();
@@ -253,6 +308,10 @@ public class PacketMine extends Module {
       public boolean shouldRemove() {
          boolean blockBroken = PacketMine.this.mc.level.getBlockState(this.blockPos).getBlock() != this.block;
          if (blockBroken) {
+            if (PacketMine.this.autoRebreak.get()) {
+               PacketMine.this.lastBrokenPos = this.blockPos;
+               PacketMine.this.lastBrokenDirection = this.direction;
+            }
             return true;
          }
 
@@ -338,6 +397,11 @@ public class PacketMine extends Module {
       private void sendStartMinePackets() {
          if (this.timer <= 0) {
             if (!this.mining) {
+               Direction dir = BlockUtils.getDirection(this.blockPos);
+               if (dir != null) {
+                  this.direction = dir;
+               }
+
                PacketMine.this.mc.getConnection().send(new ServerboundPlayerActionPacket(Action.START_DESTROY_BLOCK, this.blockPos, this.direction));
                PacketMine.this.mc.getConnection().send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
                this.mining = true;
@@ -400,17 +464,77 @@ public class PacketMine extends Module {
             z2 = (double)this.blockPos.getZ() + shape.max(Axis.Z);
          }
 
-         if (this.isReady()) {
-            event.renderer
-               .box(x1, y1, z1, x2, y2, z2, PacketMine.this.readySideColor.get(), PacketMine.this.readyLineColor.get(), PacketMine.this.shapeMode.get(), 0);
-         } else {
-            event.renderer.box(x1, y1, z1, x2, y2, z2, PacketMine.this.sideColor.get(), PacketMine.this.lineColor.get(), PacketMine.this.shapeMode.get(), 0);
+         double factor = Math.min(Math.max(this.progress, 0.0), 1.0);
+
+         if (PacketMine.this.renderMode.get() == PacketMine.RenderMode.Grow) {
+            double cx = (x1 + x2) / 2.0;
+            double cy = (y1 + y2) / 2.0;
+            double cz = (z1 + z2) / 2.0;
+            double hx = (x2 - x1) / 2.0 * factor;
+            double hy = (y2 - y1) / 2.0 * factor;
+            double hz = (z2 - z1) / 2.0 * factor;
+            x1 = cx - hx;
+            x2 = cx + hx;
+            y1 = cy - hy;
+            y2 = cy + hy;
+            z1 = cz - hz;
+            z2 = cz + hz;
+         } else if (PacketMine.this.renderMode.get() == PacketMine.RenderMode.Shrink) {
+            double shrinkFactor = 1.0 - factor;
+            double cx = (x1 + x2) / 2.0;
+            double cy = (y1 + y2) / 2.0;
+            double cz = (z1 + z2) / 2.0;
+            double hx = (x2 - x1) / 2.0 * shrinkFactor;
+            double hy = (y2 - y1) / 2.0 * shrinkFactor;
+            double hz = (z2 - z1) / 2.0 * shrinkFactor;
+            x1 = cx - hx;
+            x2 = cx + hx;
+            y1 = cy - hy;
+            y2 = cy + hy;
+            z1 = cz - hz;
+            z2 = cz + hz;
          }
+
+         Color sideC;
+         Color lineC;
+
+         if (this.isReady()) {
+            sideC = PacketMine.this.readySideColor.get();
+            lineC = PacketMine.this.readyLineColor.get();
+         } else if (PacketMine.this.colorMode.get() == PacketMine.ColorMode.Gradient) {
+            sideC = lerpColor(PacketMine.this.sideColor.get(), PacketMine.this.readySideColor.get(), factor);
+            lineC = lerpColor(PacketMine.this.lineColor.get(), PacketMine.this.readyLineColor.get(), factor);
+         } else {
+            sideC = PacketMine.this.sideColor.get();
+            lineC = PacketMine.this.lineColor.get();
+         }
+
+         event.renderer.box(x1, y1, z1, x2, y2, z2, sideC, lineC, PacketMine.this.shapeMode.get(), 0);
       }
+   }
+
+   private static Color lerpColor(Color c1, Color c2, double delta) {
+      float d = (float) Math.min(Math.max(delta, 0.0), 1.0);
+      int r = (int) (c1.r + (c2.r - c1.r) * d);
+      int g = (int) (c1.g + (c2.g - c1.g) * d);
+      int b = (int) (c1.b + (c2.b - c1.b) * d);
+      int a = (int) (c1.a + (c2.a - c1.a) * d);
+      return new Color(r, g, b, a);
    }
 
    public static enum Mode {
       Normal,
       Instant;
+   }
+
+   public static enum RenderMode {
+      Static,
+      Grow,
+      Shrink;
+   }
+
+   public static enum ColorMode {
+      Flat,
+      Gradient;
    }
 }
