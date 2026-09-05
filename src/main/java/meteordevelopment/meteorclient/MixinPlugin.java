@@ -110,6 +110,11 @@ public class MixinPlugin implements IMixinConfigPlugin {
          return isIndigoPresent;
       } else if (mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.lithium")) {
          return isLithiumPresent;
+      } else if (mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.compat")) {
+         if (mixinClassName.contains("Ntgl")) {
+            return isModLoaded("ntgl");
+         }
+         return true;
       } else {
          return mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.viafabricplus") ? isVFPPresent : true;
       }

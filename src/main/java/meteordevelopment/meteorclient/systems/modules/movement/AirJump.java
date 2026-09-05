@@ -30,11 +30,13 @@ public class AirJump extends Module {
 
    @Override
    public void onActivate() {
+      if (this.mc.player == null) return;
       this.level = this.mc.player.blockPosition().getY();
    }
 
    @EventHandler
    private void onKey(KeyEvent event) {
+      if (this.mc.player == null) return;
       GUIMove guiMove = Modules.get().get(GUIMove.class);
       boolean canJumpInScreen = this.mc.screen == null || (guiMove != null && guiMove.isActive() && !guiMove.skip() && guiMove.isScreenValid() && guiMove.jump.get());
       if (!Modules.get().isActive(Freecam.class) && canJumpInScreen && !this.mc.player.onGround()) {

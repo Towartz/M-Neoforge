@@ -186,7 +186,8 @@
     "WorldChunkMixin",
     "WorldRendererAccessor",
     "WorldRendererMixin",
-    "YggdrasilMinecraftSessionServiceAccessor"
+    "YggdrasilMinecraftSessionServiceAccessor",
+    "compat.NtglClientPlayHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 0

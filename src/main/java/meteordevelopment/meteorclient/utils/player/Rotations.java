@@ -96,10 +96,6 @@ public class Rotations {
             resetLastRotation();
             Rotations.Rotation rotation = rotations.get(i);
             setupMovementPacketRotation(rotation);
-            if (rotations.size() > 1) {
-               rotationPool.free(rotation);
-            }
-
             i++;
          } else if (lastRotation != null) {
             if (lastRotationTimer >= Config.get().rotationHoldTicks.get()) {
@@ -120,6 +116,7 @@ public class Rotations {
    }
 
    private static void setClientRotation(Rotations.Rotation rotation) {
+      if (MeteorClient.mc.player == null) return;
       preYaw = MeteorClient.mc.player.getYRot();
       prePitch = MeteorClient.mc.player.getXRot();
       MeteorClient.mc.player.setYRot((float)rotation.yaw);
@@ -129,10 +126,13 @@ public class Rotations {
    @EventHandler
    private static void onSendMovementPacketsPost(SendMovementPacketsEvent.Post event) {
       if (!rotations.isEmpty()) {
-         if (MeteorClient.mc.cameraEntity == MeteorClient.mc.player) {
-            rotations.get(i - 1).runCallback();
+         if (MeteorClient.mc.cameraEntity == MeteorClient.mc.player && i > 0 && i <= rotations.size()) {
+            Rotations.Rotation first = rotations.get(i - 1);
+            first.runCallback();
             if (rotations.size() == 1) {
-               lastRotation = rotations.get(i - 1);
+               lastRotation = first;
+            } else {
+               rotationPool.free(first);
             }
 
             resetPreRotation();
@@ -165,6 +165,7 @@ public class Rotations {
    }
 
    private static void resetPreRotation() {
+      if (MeteorClient.mc.player == null) return;
       MeteorClient.mc.player.setYRot(preYaw);
       MeteorClient.mc.player.setXRot(prePitch);
    }
@@ -278,13 +279,19 @@ public class Rotations {
       }
 
       public void sendPacket() {
-         MeteorClient.mc.getConnection().send(new Rot((float)this.yaw, (float)this.pitch, MeteorClient.mc.player.onGround()));
+         if (MeteorClient.mc.getConnection() != null && MeteorClient.mc.player != null) {
+            MeteorClient.mc.getConnection().send(new Rot((float)this.yaw, (float)this.pitch, MeteorClient.mc.player.onGround()));
+         }
          this.runCallback();
       }
 
       public void runCallback() {
          if (this.callback != null) {
-            this.callback.run();
+            try {
+               this.callback.run();
+            } catch (Throwable t) {
+               t.printStackTrace();
+            }
          }
       }
    }
