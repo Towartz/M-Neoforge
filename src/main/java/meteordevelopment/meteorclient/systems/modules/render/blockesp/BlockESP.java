@@ -41,6 +41,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 
 public class BlockESP extends Module {
    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+   private final SettingGroup sgFilter = this.settings.createGroup("Filter");
    private final SettingGroup sgShading = this.settings.createGroup("Shading");
 
    private final Setting<List<Block>> blocks = this.sgGeneral
@@ -69,6 +70,122 @@ public class BlockESP extends Module {
       );
    private final Setting<Boolean> tracers = this.sgGeneral
       .add(new BoolSetting.Builder().name("tracers").description("Render tracer lines.").defaultValue(Boolean.valueOf(false)).build());
+
+   public enum ChunkFilterMode {
+      Nearby,
+      Far,
+      Range,
+      All
+   }
+
+   public enum FilterShape {
+      Square,
+      Circle
+   }
+
+   public enum YFilterMode {
+      Relative,
+      Fixed
+   }
+
+   // Chunk & Distance Filter
+   public final Setting<ChunkFilterMode> chunkFilterMode = this.sgFilter
+      .add(
+         new EnumSetting.Builder<ChunkFilterMode>()
+            .name("chunk-filter-mode")
+            .description("Filter mode: Nearby (immediate area), Far (distant veins only), Range (custom band), or All.")
+            .defaultValue(ChunkFilterMode.Nearby)
+            .build()
+      );
+
+   public final Setting<Integer> maxChunkRadius = this.sgFilter
+      .add(
+         new IntSetting.Builder()
+            .name("max-chunk-radius")
+            .description("Maximum chunk distance from player to render (1 chunk = 16 blocks).")
+            .defaultValue(3)
+            .min(0)
+            .sliderMax(16)
+            .visible(() -> this.chunkFilterMode.get() == ChunkFilterMode.Nearby || this.chunkFilterMode.get() == ChunkFilterMode.Range)
+            .build()
+      );
+
+   public final Setting<Integer> minChunkRadius = this.sgFilter
+      .add(
+         new IntSetting.Builder()
+            .name("min-chunk-radius")
+            .description("Minimum chunk distance from player to render.")
+            .defaultValue(3)
+            .min(0)
+            .sliderMax(16)
+            .visible(() -> this.chunkFilterMode.get() == ChunkFilterMode.Far || this.chunkFilterMode.get() == ChunkFilterMode.Range)
+            .build()
+      );
+
+   public final Setting<FilterShape> filterShape = this.sgFilter
+      .add(
+         new EnumSetting.Builder<FilterShape>()
+            .name("filter-shape")
+            .description("Shape of chunk filter boundary: Square (box/Chebyshev) or Circle (radius/Euclidean).")
+            .defaultValue(FilterShape.Square)
+            .visible(() -> this.chunkFilterMode.get() != ChunkFilterMode.All)
+            .build()
+      );
+
+   public final Setting<Boolean> yFilter = this.sgFilter
+      .add(
+         new BoolSetting.Builder()
+            .name("y-filter")
+            .description("Filters blocks by elevation to eliminate clutter from caves high above or deep below.")
+            .defaultValue(false)
+            .build()
+      );
+
+   public final Setting<YFilterMode> yFilterMode = this.sgFilter
+      .add(
+         new EnumSetting.Builder<YFilterMode>()
+            .name("y-filter-mode")
+            .description("Relative to player height (follows you), or Fixed absolute Y-levels.")
+            .defaultValue(YFilterMode.Relative)
+            .visible(this.yFilter::get)
+            .build()
+      );
+
+   public final Setting<Integer> relativeYRange = this.sgFilter
+      .add(
+         new IntSetting.Builder()
+            .name("relative-y-range")
+            .description("Vertical distance (+/- blocks) above and below the player to render.")
+            .defaultValue(16)
+            .min(2)
+            .sliderMax(64)
+            .visible(() -> this.yFilter.get() && this.yFilterMode.get() == YFilterMode.Relative)
+            .build()
+      );
+
+   public final Setting<Integer> fixedMinY = this.sgFilter
+      .add(
+         new IntSetting.Builder()
+            .name("fixed-min-y")
+            .description("Minimum absolute Y-level to render.")
+            .defaultValue(-64)
+            .min(-64)
+            .sliderMax(320)
+            .visible(() -> this.yFilter.get() && this.yFilterMode.get() == YFilterMode.Fixed)
+            .build()
+      );
+
+   public final Setting<Integer> fixedMaxY = this.sgFilter
+      .add(
+         new IntSetting.Builder()
+            .name("fixed-max-y")
+            .description("Maximum absolute Y-level to render.")
+            .defaultValue(320)
+            .min(-64)
+            .sliderMax(320)
+            .visible(() -> this.yFilter.get() && this.yFilterMode.get() == YFilterMode.Fixed)
+            .build()
+      );
 
    public enum ShadingMode {
       Camera,
@@ -399,6 +516,50 @@ public class BlockESP extends Module {
       this.lastDimension = dimension;
    }
 
+   public boolean isChunkVisible(int chunkX, int chunkZ) {
+      if (this.mc.player == null) return true;
+      ChunkFilterMode mode = this.chunkFilterMode.get();
+      if (mode == ChunkFilterMode.All) return true;
+
+      ChunkPos playerChunk = this.mc.player.chunkPosition();
+      int dx = Math.abs(chunkX - playerChunk.x);
+      int dz = Math.abs(chunkZ - playerChunk.z);
+
+      double dist;
+      if (this.filterShape.get() == FilterShape.Circle) {
+         dist = Math.sqrt(dx * dx + dz * dz);
+      } else {
+         dist = Math.max(dx, dz);
+      }
+
+      return switch (mode) {
+         case Nearby -> dist <= (double) this.maxChunkRadius.get();
+         case Far -> dist >= (double) this.minChunkRadius.get();
+         case Range -> dist >= (double) this.minChunkRadius.get() && dist <= (double) this.maxChunkRadius.get();
+         default -> true;
+      };
+   }
+
+   public boolean isBlockVisible(int x, int y, int z) {
+      if (this.mc.player == null) return true;
+
+      if (this.yFilter.get()) {
+         if (this.yFilterMode.get() == YFilterMode.Relative) {
+            double playerY = this.mc.player.getY();
+            int range = this.relativeYRange.get();
+            if (y < playerY - (double)range || y > playerY + (double)range) {
+               return false;
+            }
+         } else {
+            if (y < this.fixedMinY.get() || y > this.fixedMaxY.get()) {
+               return false;
+            }
+         }
+      }
+
+      return true;
+   }
+
    @EventHandler
    private void onRender(Render3DEvent event) {
       synchronized (this.chunks) {
@@ -418,13 +579,21 @@ public class BlockESP extends Module {
                });
                it.remove();
             } else {
-               chunk.render(event);
+               if (this.isChunkVisible(chunk.x, chunk.z)) {
+                  chunk.render(event);
+               }
             }
          }
 
          if (this.tracers.get()) {
             for (ESPGroup group : this.groups) {
-               group.render(event);
+               if (group.blocks.isEmpty()) continue;
+               int groupChunkX = ((int) Math.floor(group.getCentroidX())) >> 4;
+               int groupChunkZ = ((int) Math.floor(group.getCentroidZ())) >> 4;
+               int groupY = (int) Math.floor(group.getCentroidY());
+               if (this.isChunkVisible(groupChunkX, groupChunkZ) && this.isBlockVisible(groupChunkX << 4, groupY, groupChunkZ << 4)) {
+                  group.render(event);
+               }
             }
          }
       }
@@ -432,6 +601,10 @@ public class BlockESP extends Module {
 
    @Override
    public String getInfoString() {
+      ChunkFilterMode mode = this.chunkFilterMode.get();
+      if (mode != ChunkFilterMode.All) {
+         return "%s (%s)".formatted(this.groups.size(), mode.name());
+      }
       return "%s groups".formatted(this.groups.size());
    }
 }

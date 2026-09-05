@@ -146,6 +146,18 @@ public class ESPGroup {
       blockEsp.removeGroup(group);
    }
 
+   public double getCentroidX() {
+      return this.blocks.isEmpty() ? 0.0 : this.sumX / (double)this.blocks.size() + 0.5;
+   }
+
+   public double getCentroidY() {
+      return this.blocks.isEmpty() ? 0.0 : this.sumY / (double)this.blocks.size() + 0.5;
+   }
+
+   public double getCentroidZ() {
+      return this.blocks.isEmpty() ? 0.0 : this.sumZ / (double)this.blocks.size() + 0.5;
+   }
+
    public void render(Render3DEvent event) {
       ESPBlockData blockData = blockEsp.getBlockData(this.block);
       if (blockData.tracer) {
@@ -154,9 +166,9 @@ public class ESPGroup {
                RenderUtils.center.x,
                RenderUtils.center.y,
                RenderUtils.center.z,
-               this.sumX / (double)this.blocks.size() + 0.5,
-               this.sumY / (double)this.blocks.size() + 0.5,
-               this.sumZ / (double)this.blocks.size() + 0.5,
+               this.getCentroidX(),
+               this.getCentroidY(),
+               this.getCentroidZ(),
                blockData.tracerColor
             );
       }

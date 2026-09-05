@@ -23,8 +23,8 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
 
 public class ESPChunk {
-   private final int x;
-   private final int z;
+   public final int x;
+   public final int z;
    public Long2ObjectMap<ESPBlock> blocks;
 
    public ESPChunk(int x, int z) {
@@ -94,11 +94,14 @@ public class ESPChunk {
 
    public void render(Render3DEvent event) {
       if (this.blocks != null) {
+         BlockESP blockEsp = Modules.get().get(BlockESP.class);
          ObjectIterator var2 = this.blocks.values().iterator();
 
          while (var2.hasNext()) {
             ESPBlock block = (ESPBlock)var2.next();
-            block.render(event);
+            if (blockEsp == null || blockEsp.isBlockVisible(block.x, block.y, block.z)) {
+               block.render(event);
+            }
          }
       }
    }
