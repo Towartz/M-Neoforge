@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.Utils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -115,6 +116,21 @@ public class ESPChunk {
          if (id != null && !id.getPath().equals("air")) {
             blockIds.add(id);
          }
+      }
+
+      BlockESP blockEsp = Modules.get().get(BlockESP.class);
+      if (blockEsp != null && blockEsp.mergeOreVariants.get()) {
+         Set<ResourceLocation> extraIds = new HashSet<>();
+         for (ResourceLocation id : blockIds) {
+            String path = id.getPath();
+            String altPath = path.startsWith("deepslate_") ? path.substring(10) : "deepslate_" + path;
+            ResourceLocation altId = ResourceLocation.fromNamespaceAndPath(id.getNamespace(), altPath);
+            if (BuiltInRegistries.BLOCK.containsKey(altId)) {
+               extraIds.add(altId);
+               blockSet.add(BuiltInRegistries.BLOCK.get(altId));
+            }
+         }
+         blockIds.addAll(extraIds);
       }
 
       LevelChunkSection[] sections = chunk.getSections();

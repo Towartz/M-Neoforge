@@ -19,6 +19,7 @@ import meteordevelopment.meteorclient.settings.BlockDataSetting;
 import meteordevelopment.meteorclient.settings.BlockListSetting;
 import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.DoubleSetting;
+import meteordevelopment.meteorclient.settings.EnumSetting;
 import meteordevelopment.meteorclient.settings.GenericSetting;
 import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
@@ -69,22 +70,53 @@ public class BlockESP extends Module {
    private final Setting<Boolean> tracers = this.sgGeneral
       .add(new BoolSetting.Builder().name("tracers").description("Render tracer lines.").defaultValue(Boolean.valueOf(false)).build());
 
+   public enum ShadingMode {
+      Camera,
+      Directional,
+      Flat
+   }
+
+   public enum CullMode {
+      None,
+      Backfaces
+   }
+
    // Shading & Clarity
-   public final Setting<Boolean> directionalShading = this.sgShading
+   public final Setting<ShadingMode> shadingMode = this.sgShading
+      .add(
+         new EnumSetting.Builder<ShadingMode>()
+            .name("shading-mode")
+            .description("Face lighting mode: Camera (dynamic view-aware), Directional (fixed 3D angles), or Flat.")
+            .defaultValue(ShadingMode.Camera)
+            .build()
+      );
+
+   public final Setting<Double> bottomBrightness = this.sgShading
+      .add(
+         new DoubleSetting.Builder()
+            .name("bottom-brightness")
+            .description("Brightness multiplier for bottom faces to ensure clear visibility.")
+            .defaultValue(1.0)
+            .min(0.2)
+            .sliderMax(2.0)
+            .build()
+      );
+
+   public final Setting<Boolean> highlightBottom = this.sgShading
       .add(
          new BoolSetting.Builder()
-            .name("directional-shading")
-            .description("Applies realistic face lighting to shaded blocks to restore 3D depth perception.")
+            .name("highlight-bottom")
+            .description("Keeps bottom faces vivid and un-culled when viewed from above.")
             .defaultValue(true)
             .build()
       );
 
-   public final Setting<Boolean> cullBackfaces = this.sgShading
+   public final Setting<CullMode> cullMode = this.sgShading
       .add(
-         new BoolSetting.Builder()
-            .name("cull-backfaces")
-            .description("Only renders faces pointing toward the camera. Disable to keep all exterior vein faces visible.")
-            .defaultValue(false)
+         new EnumSetting.Builder<CullMode>()
+            .name("cull-mode")
+            .description("Culls faces pointing away from camera. None preserves all exterior faces.")
+            .defaultValue(CullMode.None)
             .build()
       );
 
@@ -113,10 +145,55 @@ public class BlockESP extends Module {
          new DoubleSetting.Builder()
             .name("fade-distance")
             .description("Distance in blocks at which shaded ESP begins to fade.")
-            .defaultValue(64.0)
+            .defaultValue(128.0)
             .min(8.0)
-            .sliderMax(128.0)
+            .sliderMax(384.0)
             .visible(this.distanceFade::get)
+            .build()
+      );
+
+   public final Setting<Boolean> depthCompensation = this.sgShading
+      .add(
+         new BoolSetting.Builder()
+            .name("depth-compensation")
+            .description("Reduces vertical distance penalty so bedrock/deepslate ores stay visible from the surface.")
+            .defaultValue(true)
+            .visible(this.distanceFade::get)
+            .build()
+      );
+
+   public final Setting<Integer> minOpacity = this.sgShading
+      .add(
+         new IntSetting.Builder()
+            .name("min-opacity")
+            .description("Minimum opacity floor for distant blocks so they never completely vanish.")
+            .defaultValue(35)
+            .range(5, 255)
+            .sliderMax(255)
+            .visible(this.distanceFade::get)
+            .build()
+      );
+
+   public final Setting<Boolean> innerGrid = this.sgShading
+      .add(
+         new BoolSetting.Builder()
+            .name("inner-grid")
+            .description("Renders subtle inner wireframe grid lines between blocks in a vein for sharp block distinction.")
+            .defaultValue(true)
+            .build()
+      );
+
+   public final Setting<Boolean> mergeOreVariants = this.sgShading
+      .add(
+         new BoolSetting.Builder()
+            .name("merge-ore-variants")
+            .description("Merges regular and deepslate ore variants across Y=0 into continuous clusters.")
+            .defaultValue(true)
+            .onChanged(v -> {
+               if (this.isActive() && Utils.canUpdate()) {
+                  this.onActivate();
+               }
+            })
             .build()
       );
    private final MutableBlockPos blockPos = new MutableBlockPos();
@@ -173,6 +250,16 @@ public class BlockESP extends Module {
             return true;
          }
       }
+      if (this.mergeOreVariants.get() && id != null) {
+         String path = id.getPath();
+         String altPath = path.startsWith("deepslate_") ? path.substring(10) : "deepslate_" + path;
+         ResourceLocation altId = ResourceLocation.fromNamespaceAndPath(id.getNamespace(), altPath);
+         for (Block target : targetList) {
+            if (BuiltInRegistries.BLOCK.getKey(target).equals(altId)) {
+               return true;
+            }
+         }
+      }
       return false;
    }
 
@@ -185,6 +272,16 @@ public class BlockESP extends Module {
       for (Map.Entry<Block, ESPBlockData> entry : configs.entrySet()) {
          if (BuiltInRegistries.BLOCK.getKey(entry.getKey()).equals(id)) {
             return entry.getValue();
+         }
+      }
+      if (this.mergeOreVariants.get() && id != null) {
+         String path = id.getPath();
+         String altPath = path.startsWith("deepslate_") ? path.substring(10) : "deepslate_" + path;
+         ResourceLocation altId = ResourceLocation.fromNamespaceAndPath(id.getNamespace(), altPath);
+         for (Map.Entry<Block, ESPBlockData> entry : configs.entrySet()) {
+            if (BuiltInRegistries.BLOCK.getKey(entry.getKey()).equals(altId)) {
+               return entry.getValue();
+            }
          }
       }
       return this.defaultBlockConfig.get();

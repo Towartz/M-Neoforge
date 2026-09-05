@@ -10,6 +10,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.BlockPos.MutableBlockPos;
 import net.minecraft.core.Direction.Axis;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -24,6 +27,24 @@ public class ESPBlock {
    private static final Color cEast = new Color();
    private static final Color cWest = new Color();
    private static final Color cLine = new Color();
+   private static final Color cInnerLine = new Color();
+
+   public static boolean isSameOreFamily(Block b1, Block b2) {
+      if (b1 == b2) return true;
+      if (b1 == null || b2 == null) return false;
+      if (!blockEsp.mergeOreVariants.get()) return false;
+
+      ResourceLocation id1 = BuiltInRegistries.BLOCK.getKey(b1);
+      ResourceLocation id2 = BuiltInRegistries.BLOCK.getKey(b2);
+      if (id1 == null || id2 == null) return false;
+      if (!id1.getNamespace().equals(id2.getNamespace())) return false;
+
+      String p1 = id1.getPath();
+      String p2 = id2.getPath();
+      if (p1.startsWith("deepslate_")) p1 = p1.substring(10);
+      if (p2.startsWith("deepslate_")) p2 = p2.substring(10);
+      return p1.equals(p2);
+   }
 
    private static void setShadedColor(Color target, Color base, float multiplier, int alpha) {
       int r = Math.min(255, (int)((float)base.r * multiplier));
@@ -182,7 +203,7 @@ public class ESPBlock {
    private boolean isNeighbour(Direction dir) {
       blockPos.set(this.x + dir.getStepX(), this.y + dir.getStepY(), this.z + dir.getStepZ());
       BlockState neighbourState = MeteorClient.mc.level.getBlockState(blockPos);
-      if (neighbourState.getBlock() != this.state.getBlock()) {
+      if (!isSameOreFamily(neighbourState.getBlock(), this.state.getBlock())) {
          return false;
       } else {
          VoxelShape cube = Shapes.block();
@@ -234,7 +255,7 @@ public class ESPBlock {
 
    private boolean isNeighbourDiagonal(double x, double y, double z) {
       blockPos.set((double)this.x + x, (double)this.y + y, (double)this.z + z);
-      return this.state.getBlock() == MeteorClient.mc.level.getBlockState(blockPos).getBlock();
+      return isSameOreFamily(this.state.getBlock(), MeteorClient.mc.level.getBlockState(blockPos).getBlock());
    }
 
    public void render(Render3DEvent event) {
@@ -259,7 +280,7 @@ public class ESPBlock {
       Color lineColor = blockData.lineColor;
       Color sideColor = blockData.sideColor;
 
-      // Distance-based depth fade
+      // Distance-based depth fade with vertical depth compensation
       double fadeFactor = 1.0;
       if (blockEsp.distanceFade.get()) {
          double cx = (x1 + x2) * 0.5;
@@ -268,11 +289,17 @@ public class ESPBlock {
          double dx = cx - event.offsetX;
          double dy = cy - event.offsetY;
          double dz = cz - event.offsetZ;
-         double distSq = dx * dx + dy * dy + dz * dz;
+
+         double dist;
+         if (blockEsp.depthCompensation.get()) {
+            double verticalDist = dy * 0.5;
+            dist = Math.sqrt(dx * dx + verticalDist * verticalDist + dz * dz);
+         } else {
+            dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+         }
+
          double fadeDist = blockEsp.fadeDistance.get();
-         double fadeDistSq = fadeDist * fadeDist;
-         if (distSq > fadeDistSq) {
-            double dist = Math.sqrt(distSq);
+         if (dist > fadeDist) {
             double maxDist = fadeDist * 2.0;
             if (dist >= maxDist) {
                fadeFactor = 0.25;
@@ -282,31 +309,79 @@ public class ESPBlock {
          }
       }
 
-      // Shading fill alpha
+      // Shading fill alpha with minOpacity floor
       int sideAlpha = sideColor.a;
       int globalFill = blockEsp.fillOpacity.get();
       if (globalFill > 0) {
          sideAlpha = globalFill;
       }
       if (blockEsp.distanceFade.get()) {
-         sideAlpha = Math.max(14, (int) Math.round(sideAlpha * fadeFactor));
+         int minOp = blockEsp.minOpacity.get();
+         sideAlpha = Math.max(Math.min(sideAlpha, minOp), (int) Math.round(sideAlpha * fadeFactor));
       }
 
       // Line color
       int lineAlpha = lineColor.a;
       if (blockEsp.distanceFade.get()) {
-         lineAlpha = Math.max(30, (int) Math.round(lineAlpha * fadeFactor));
+         int minLineOp = Math.max(30, blockEsp.minOpacity.get());
+         lineAlpha = Math.max(Math.min(lineAlpha, minLineOp), (int) Math.round(lineAlpha * fadeFactor));
       }
       cLine.set(lineColor.r, lineColor.g, lineColor.b, lineAlpha);
 
-      // Directional face lighting
-      boolean directional = blockEsp.directionalShading.get();
-      float topMult = directional ? 1.00f : 1.0f;
-      float southMult = directional ? 0.85f : 1.0f;
-      float northMult = directional ? 0.75f : 1.0f;
-      float eastMult = directional ? 0.65f : 1.0f;
-      float westMult = directional ? 0.60f : 1.0f;
-      float bottomMult = directional ? 0.50f : 1.0f;
+      int innerLineAlpha = Math.max(12, (int) Math.round(lineAlpha * 0.35f));
+      cInnerLine.set(lineColor.r, lineColor.g, lineColor.b, innerLineAlpha);
+
+      // Dynamic camera-aware face lighting
+      BlockESP.ShadingMode mode = blockEsp.shadingMode.get();
+      float topMult = 1.0f;
+      float bottomMult = 1.0f;
+      float northMult = 1.0f;
+      float southMult = 1.0f;
+      float eastMult = 1.0f;
+      float westMult = 1.0f;
+
+      double bBrightness = blockEsp.bottomBrightness.get();
+
+      if (mode == BlockESP.ShadingMode.Directional) {
+         topMult = 1.00f;
+         southMult = 0.85f;
+         northMult = 0.75f;
+         eastMult = 0.65f;
+         westMult = 0.60f;
+         bottomMult = (float) (0.50f * bBrightness);
+      } else if (mode == BlockESP.ShadingMode.Camera) {
+         double cx = (x1 + x2) * 0.5;
+         double cy = (y1 + y2) * 0.5;
+         double cz = (z1 + z2) * 0.5;
+         double toCamX = event.offsetX - cx;
+         double toCamY = event.offsetY - cy;
+         double toCamZ = event.offsetZ - cz;
+         double camLen = Math.sqrt(toCamX * toCamX + toCamY * toCamY + toCamZ * toCamZ);
+
+         if (camLen > 0.0001) {
+            double nx = toCamX / camLen;
+            double ny = toCamY / camLen;
+            double nz = toCamZ / camLen;
+
+            topMult = (float) Math.max(0.40, 0.65 + 0.35 * ny);
+            northMult = (float) Math.max(0.40, 0.65 - 0.35 * nz);
+            southMult = (float) Math.max(0.40, 0.65 + 0.35 * nz);
+            eastMult = (float) Math.max(0.40, 0.65 + 0.35 * nx);
+            westMult = (float) Math.max(0.40, 0.65 - 0.35 * nx);
+
+            if (blockEsp.highlightBottom.get() && event.offsetY > y1) {
+               bottomMult = (float) Math.min(1.5, bBrightness);
+            } else {
+               bottomMult = (float) Math.max(0.40, (0.65 - 0.35 * ny) * bBrightness);
+            }
+         }
+      } else {
+         bottomMult = (float) bBrightness;
+      }
+
+      if (mode != BlockESP.ShadingMode.Camera && blockEsp.highlightBottom.get() && event.offsetY > y1) {
+         bottomMult = (float) Math.max(bottomMult, (float) bBrightness);
+      }
 
       setShadedColor(cTop, sideColor, topMult, sideAlpha);
       setShadedColor(cSouth, sideColor, southMult, sideAlpha);
@@ -315,61 +390,98 @@ public class ESPBlock {
       setShadedColor(cWest, sideColor, westMult, sideAlpha);
       setShadedColor(cBottom, sideColor, bottomMult, sideAlpha);
 
-      // Render wireframe lines
-      if (shapeMode.lines() && lineAlpha > 0) {
+      // Render wireframe lines & inner grid
+      boolean renderLines = shapeMode.lines() && lineAlpha > 0;
+      boolean renderInner = blockEsp.innerGrid.get() && lineAlpha > 0;
+
+      if ((renderLines || renderInner) && lineAlpha > 0) {
          if (this.neighbours == 0) {
-            event.renderer.boxLines(x1, y1, z1, x2, y2, z2, cLine, 0);
+            if (renderLines) {
+               event.renderer.boxLines(x1, y1, z1, x2, y2, z2, cLine, 0);
+            }
          } else {
             if ((this.neighbours & 128) != 128 && (this.neighbours & 32) != 32
                || (this.neighbours & 128) == 128 && (this.neighbours & 32) == 32 && (this.neighbours & 64) != 64) {
-               event.renderer.line(x1, y1, z1, x1, y2, z1, cLine);
+               if (renderLines) event.renderer.line(x1, y1, z1, x1, y2, z1, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y1, z1, x1, y2, z1, cInnerLine);
             }
 
             if ((this.neighbours & 128) != 128 && (this.neighbours & 2) != 2
                || (this.neighbours & 128) == 128 && (this.neighbours & 2) == 2 && (this.neighbours & 256) != 256) {
-               event.renderer.line(x1, y1, z2, x1, y2, z2, cLine);
+               if (renderLines) event.renderer.line(x1, y1, z2, x1, y2, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y1, z2, x1, y2, z2, cInnerLine);
             }
 
             if ((this.neighbours & 8) != 8 && (this.neighbours & 32) != 32
                || (this.neighbours & 8) == 8 && (this.neighbours & 32) == 32 && (this.neighbours & 16) != 16) {
-               event.renderer.line(x2, y1, z1, x2, y2, z1, cLine);
+               if (renderLines) event.renderer.line(x2, y1, z1, x2, y2, z1, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x2, y1, z1, x2, y2, z1, cInnerLine);
             }
 
             if ((this.neighbours & 8) != 8 && (this.neighbours & 2) != 2
                || (this.neighbours & 8) == 8 && (this.neighbours & 2) == 2 && (this.neighbours & 4) != 4) {
-               event.renderer.line(x2, y1, z2, x2, y2, z2, cLine);
+               if (renderLines) event.renderer.line(x2, y1, z2, x2, y2, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x2, y1, z2, x2, y2, z2, cInnerLine);
             }
 
-            if ((this.neighbours & 32) != 32 && (this.neighbours & 16384) != 16384 || (this.neighbours & 32) != 32 && (this.neighbours & 65536) == 65536) {
-               event.renderer.line(x1, y1, z1, x2, y1, z1, cLine);
+            if ((this.neighbours & 32) != 32 && (this.neighbours & 16384) != 16384
+               || (this.neighbours & 32) == 32 && (this.neighbours & 16384) == 16384 && (this.neighbours & 65536) != 65536) {
+               if (renderLines) event.renderer.line(x1, y1, z1, x2, y1, z1, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y1, z1, x2, y1, z1, cInnerLine);
             }
 
-            if ((this.neighbours & 2) != 2 && (this.neighbours & 16384) != 16384 || (this.neighbours & 2) != 2 && (this.neighbours & 32768) == 32768) {
-               event.renderer.line(x1, y1, z2, x2, y1, z2, cLine);
+            if ((this.neighbours & 2) != 2 && (this.neighbours & 16384) != 16384
+               || (this.neighbours & 2) == 2 && (this.neighbours & 16384) == 16384 && (this.neighbours & 32768) != 32768) {
+               if (renderLines) event.renderer.line(x1, y1, z2, x2, y1, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y1, z2, x2, y1, z2, cInnerLine);
             }
 
-            if ((this.neighbours & 32) != 32 && (this.neighbours & 512) != 512 || (this.neighbours & 32) != 32 && (this.neighbours & 2048) == 2048) {
-               event.renderer.line(x1, y2, z1, x2, y2, z1, cLine);
+            if ((this.neighbours & 32) != 32 && (this.neighbours & 512) != 512
+               || (this.neighbours & 32) == 32 && (this.neighbours & 512) == 512 && (this.neighbours & 2048) != 2048) {
+               if (renderLines) event.renderer.line(x1, y2, z1, x2, y2, z1, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y2, z1, x2, y2, z1, cInnerLine);
             }
 
-            if ((this.neighbours & 2) != 2 && (this.neighbours & 512) != 512 || (this.neighbours & 2) != 2 && (this.neighbours & 1024) == 1024) {
-               event.renderer.line(x1, y2, z2, x2, y2, z2, cLine);
+            if ((this.neighbours & 2) != 2 && (this.neighbours & 512) != 512
+               || (this.neighbours & 2) == 2 && (this.neighbours & 512) == 512 && (this.neighbours & 1024) != 1024) {
+               if (renderLines) event.renderer.line(x1, y2, z2, x2, y2, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y2, z2, x2, y2, z2, cInnerLine);
             }
 
-            if ((this.neighbours & 128) != 128 && (this.neighbours & 16384) != 16384 || (this.neighbours & 128) != 128 && (this.neighbours & 262144) == 262144) {
-               event.renderer.line(x1, y1, z1, x1, y1, z2, cLine);
+            if ((this.neighbours & 128) != 128 && (this.neighbours & 16384) != 16384
+               || (this.neighbours & 128) == 128 && (this.neighbours & 16384) == 16384 && (this.neighbours & 262144) != 262144) {
+               if (renderLines) event.renderer.line(x1, y1, z1, x1, y1, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y1, z1, x1, y1, z2, cInnerLine);
             }
 
-            if ((this.neighbours & 8) != 8 && (this.neighbours & 16384) != 16384 || (this.neighbours & 8) != 8 && (this.neighbours & 131072) == 131072) {
-               event.renderer.line(x2, y1, z1, x2, y1, z2, cLine);
+            if ((this.neighbours & 8) != 8 && (this.neighbours & 16384) != 16384
+               || (this.neighbours & 8) == 8 && (this.neighbours & 16384) == 16384 && (this.neighbours & 131072) != 131072) {
+               if (renderLines) event.renderer.line(x2, y1, z1, x2, y1, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x2, y1, z1, x2, y1, z2, cInnerLine);
             }
 
-            if ((this.neighbours & 128) != 128 && (this.neighbours & 512) != 512 || (this.neighbours & 128) != 128 && (this.neighbours & 8192) == 8192) {
-               event.renderer.line(x1, y2, z1, x1, y2, z2, cLine);
+            if ((this.neighbours & 128) != 128 && (this.neighbours & 512) != 512
+               || (this.neighbours & 128) == 128 && (this.neighbours & 512) == 512 && (this.neighbours & 8192) != 8192) {
+               if (renderLines) event.renderer.line(x1, y2, z1, x1, y2, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x1, y2, z1, x1, y2, z2, cInnerLine);
             }
 
-            if ((this.neighbours & 8) != 8 && (this.neighbours & 512) != 512 || (this.neighbours & 8) != 8 && (this.neighbours & 4096) == 4096) {
-               event.renderer.line(x2, y2, z1, x2, y2, z2, cLine);
+            if ((this.neighbours & 8) != 8 && (this.neighbours & 512) != 512
+               || (this.neighbours & 8) == 8 && (this.neighbours & 512) == 512 && (this.neighbours & 4096) != 4096) {
+               if (renderLines) event.renderer.line(x2, y2, z1, x2, y2, z2, cLine);
+            } else if (renderInner) {
+               event.renderer.line(x2, y2, z1, x2, y2, z2, cInnerLine);
             }
          }
       }
@@ -384,14 +496,14 @@ public class ESPBlock {
          if ((this.neighbours & 128) == 128) excludeDir |= Dir.WEST;
          if ((this.neighbours & 8) == 8) excludeDir |= Dir.EAST;
 
-         if (blockEsp.cullBackfaces.get()) {
+         if (blockEsp.cullMode.get() == BlockESP.CullMode.Backfaces) {
             double camX = event.offsetX;
             double camY = event.offsetY;
             double camZ = event.offsetZ;
             boolean inside = camX >= x1 && camX <= x2 && camY >= y1 && camY <= y2 && camZ >= z1 && camZ <= z2;
             if (!inside) {
                if (camY < y2) excludeDir |= Dir.UP;
-               if (camY > y1) excludeDir |= Dir.DOWN;
+               if (camY > y1 && !blockEsp.highlightBottom.get()) excludeDir |= Dir.DOWN;
                if (camZ > z1) excludeDir |= Dir.NORTH;
                if (camZ < z2) excludeDir |= Dir.SOUTH;
                if (camX > x1) excludeDir |= Dir.WEST;
