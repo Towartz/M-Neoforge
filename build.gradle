@@ -63,7 +63,7 @@ dependencies {
     implementation 'org.reflections:reflections:0.10.2'
 
     // Baritone implementation from local libs
-    implementation files('libs/baritone-unoptimized-neoforge-1.11.2.jar')
+    implementation files('libs/baritone-unoptimized-neoforge-1.11.3.jar')
 }
 
 tasks.named('compileStubsJava') {
@@ -81,7 +81,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('jar') {
     from {
-        zipTree('libs/baritone-unoptimized-neoforge-1.11.2.jar').matching {
+        zipTree('libs/baritone-unoptimized-neoforge-1.11.3.jar').matching {
             exclude 'META-INF/MANIFEST.MF'
             exclude 'META-INF/neoforge.mods.toml'
             exclude 'mixins.baritone.json'
