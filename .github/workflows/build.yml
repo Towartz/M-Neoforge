@@ -100,12 +100,38 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.jar
-            dist/*.txt
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+            RELEASE_TITLE="Meteor Client NeoForge 1.21.1 ($RELEASE_TAG)"
+          else
+            RELEASE_TAG="v0.5.8"
+            RELEASE_TITLE="Meteor Client NeoForge 1.21.1 ($RELEASE_TAG)"
+          fi
+
+          echo "Target Release Tag: $RELEASE_TAG"
+
+          NOTES="### 🚀 Meteor Client NeoForge 1.21.1
+- **NeoForge Version**: \`21.1.249\`
+- **Minecraft Version**: \`1.21.1\`
+- **Baritone Version**: \`1.11.3\` (Upgraded with modular classloader fix)
+- **Commit**: [\`${{ github.sha }}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+
+#### 📦 Artifacts:
+- **File**: \`${{ steps.metadata.outputs.jar_name }}\` (\`${{ steps.metadata.outputs.jar_size_mb }} MB\`)
+- **SHA256**: \`${{ steps.metadata.outputs.jar_sha256 }}\`"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists. Updating notes and uploading assets..."
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes "$NOTES" --target "${{ github.sha }}" || true
+            gh release upload "$RELEASE_TAG" dist/*.jar dist/*.txt --clobber
+          else
+            echo "Creating release $RELEASE_TAG..."
+            gh release create "$RELEASE_TAG" dist/*.jar dist/*.txt \
+              --title "$RELEASE_TITLE" \
+              --notes "$NOTES" \
+              --target "${{ github.sha }}"
+          fi
