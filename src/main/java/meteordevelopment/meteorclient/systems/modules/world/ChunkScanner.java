@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
+import meteordevelopment.meteorclient.events.world.BlockUpdateEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.screens.ChunkScannerScreen;
@@ -26,11 +27,13 @@ import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine;
 import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine.ChunkScanResult;
 import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine.DiscoveredBlockEntry;
+import meteordevelopment.meteorclient.utils.world.OreDiscovery;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
@@ -442,21 +445,69 @@ public class ChunkScanner extends Module {
    }
 
    @EventHandler
+   private void onBlockUpdate(BlockUpdateEvent event) {
+      if (this.mc.player == null || this.mc.level == null || this.lastResult == null) return;
+      int chunkX = event.pos.getX() >> 4;
+      int chunkZ = event.pos.getZ() >> 4;
+      ChunkPos playerChunk = this.mc.player.chunkPosition();
+      int radius = this.scanRadius.get();
+
+      if (Math.abs(chunkX - playerChunk.x) <= radius && Math.abs(chunkZ - playerChunk.z) <= radius) {
+         Block oldBlock = event.oldState.getBlock();
+         Block newBlock = event.newState.getBlock();
+         boolean relevant = this.isTargeted(oldBlock) || this.isTargeted(newBlock)
+            || OreDiscovery.isOre(oldBlock) || OreDiscovery.isOre(newBlock);
+
+         if (relevant) {
+            this.forceScan();
+
+            if (this.supervisor.get() && this.isMiningChunk && !this.activeTargets.isEmpty()) {
+               if (this.activeTargets.contains(oldBlock) && event.newState.isAir()) {
+                  this.miningStuckTicks = 8;
+               }
+            }
+         }
+      }
+   }
+
+   @EventHandler
    private void onRender(Render3DEvent event) {
       if (this.mc.player == null || this.mc.level == null) return;
       ChunkPos pos = this.mc.player.chunkPosition();
 
       // Render chunk boundaries
       if (this.renderChunk.get()) {
-         double minX = pos.getMinBlockX();
-         double minZ = pos.getMinBlockZ();
-         double maxX = pos.getMaxBlockX() + 1;
-         double maxZ = pos.getMaxBlockZ() + 1;
+         int radius = this.scanRadius.get();
          double minY = this.mc.level.getMinBuildHeight();
          double maxY = this.mc.level.getMaxBuildHeight();
 
-         event.renderer.box(minX, minY, minZ, maxX, maxY, maxZ,
-            this.chunkSideColor.get(), this.chunkLineColor.get(), this.chunkShape.get(), 0);
+         if (radius <= 0) {
+            double minX = pos.getMinBlockX();
+            double minZ = pos.getMinBlockZ();
+            double maxX = pos.getMaxBlockX() + 1;
+            double maxZ = pos.getMaxBlockZ() + 1;
+
+            event.renderer.box(minX, minY, minZ, maxX, maxY, maxZ,
+               this.chunkSideColor.get(), this.chunkLineColor.get(), this.chunkShape.get(), 0);
+         } else {
+            // Render full scanned radius outer bounds
+            double areaMinX = (pos.x - radius) << 4;
+            double areaMinZ = (pos.z - radius) << 4;
+            double areaMaxX = ((pos.x + radius) << 4) + 16;
+            double areaMaxZ = ((pos.z + radius) << 4) + 16;
+
+            event.renderer.box(areaMinX, minY, areaMinZ, areaMaxX, maxY, areaMaxZ,
+               this.chunkSideColor.get(), this.chunkLineColor.get(), this.chunkShape.get(), 0);
+
+            // Render subtle inner box for player's current chunk
+            double curMinX = pos.getMinBlockX();
+            double curMinZ = pos.getMinBlockZ();
+            double curMaxX = pos.getMaxBlockX() + 1;
+            double curMaxZ = pos.getMaxBlockZ() + 1;
+            Color innerLine = new Color(this.chunkLineColor.get().r, this.chunkLineColor.get().g, this.chunkLineColor.get().b, 90);
+            event.renderer.box(curMinX, minY, curMinZ, curMaxX, maxY, curMaxZ,
+               null, innerLine, ShapeMode.Lines, 0);
+         }
       }
 
       // Render ore & custom target boxes & tracers
@@ -471,16 +522,19 @@ public class ChunkScanner extends Module {
 
             if (this.renderOres.get() || this.highlightedBlock != null) {
                for (BlockPos bPos : entry.positions) {
+                  if (this.mc.level.getBlockState(bPos).isAir()) continue;
                   event.renderer.box(bPos, boxColor, boxColor, ShapeMode.Lines, 0);
                }
             }
 
             if (this.tracers.get() && entry.nearestPos != null) {
-               event.renderer.line(
-                  this.mc.player.getX(), this.mc.player.getEyeY(), this.mc.player.getZ(),
-                  entry.nearestPos.getX() + 0.5, entry.nearestPos.getY() + 0.5, entry.nearestPos.getZ() + 0.5,
-                  tColor
-               );
+               if (!this.mc.level.getBlockState(entry.nearestPos).isAir()) {
+                  event.renderer.line(
+                     RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z,
+                     entry.nearestPos.getX() + 0.5, entry.nearestPos.getY() + 0.5, entry.nearestPos.getZ() + 0.5,
+                     tColor
+                  );
+               }
             }
          }
       }

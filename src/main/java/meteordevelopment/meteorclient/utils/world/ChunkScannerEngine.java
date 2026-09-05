@@ -200,6 +200,7 @@ public class ChunkScannerEngine {
          }
       }
 
+      Map<Block, Boolean> customLookupCache = includeCustom ? new HashMap<>() : null;
       LevelChunkSection[] sections = chunk.getSections();
       int minBuildHeight = chunk.getMinBuildHeight();
 
@@ -208,6 +209,7 @@ public class ChunkScannerEngine {
          if (section == null || section.hasOnlyAir()) continue;
 
          boolean sectionHasTargets = section.maybeHas(state -> {
+            if (state.isAir()) return false;
             Block b = state.getBlock();
             if (includeCustom) {
                if (customSet.contains(b)) return true;
@@ -228,16 +230,22 @@ public class ChunkScannerEngine {
             for (int z = 0; z < 16; z++) {
                for (int x = 0; x < 16; x++) {
                   BlockState state = container.get(x, y, z);
+                  if (state.isAir()) continue;
+
                   Block block = state.getBlock();
                   boolean isCustom = false;
                   if (includeCustom) {
-                     if (customSet.contains(block)) {
-                        isCustom = true;
+                     Boolean cachedCustom = customLookupCache.get(block);
+                     if (cachedCustom != null) {
+                        isCustom = cachedCustom;
                      } else {
-                        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
-                        if (id != null && customIds.contains(id)) {
+                        if (customSet.contains(block)) {
                            isCustom = true;
+                        } else {
+                           ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
+                           isCustom = (id != null && customIds.contains(id));
                         }
+                        customLookupCache.put(block, isCustom);
                      }
                   }
                   boolean isOre = includeOres && OreDiscovery.isOre(block);

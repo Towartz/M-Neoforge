@@ -16,8 +16,11 @@ public class OreDiscovery {
    private static final List<Block> DISCOVERED_ORES = new ArrayList<>();
    private static boolean scanned = false;
 
+   private static final java.util.Map<Block, Boolean> IS_ORE_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
    private static final net.minecraft.tags.TagKey<Block> C_ORES = net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("c", "ores"));
    private static final net.minecraft.tags.TagKey<Block> FORGE_ORES = net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("forge", "ores"));
+   private static final net.minecraft.tags.TagKey<Block> C_ORES_IN_GROUND = net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("c", "ores_in_ground"));
 
    private OreDiscovery() {
    }
@@ -27,9 +30,28 @@ public class OreDiscovery {
          return false;
       }
 
-      // 1. Tag check (conventional c:ores and forge:ores)
+      Boolean cached = IS_ORE_CACHE.get(block);
+      if (cached != null) {
+         return cached;
+      }
+
+      boolean result = computeIsOre(block);
+      IS_ORE_CACHE.put(block, result);
+      return result;
+   }
+
+   private static boolean computeIsOre(Block block) {
+      // 1. Tag check (vanilla BlockTags and conventional c:ores / forge:ores / c:ores_in_ground)
       try {
-         if (block.defaultBlockState().is(C_ORES) || block.defaultBlockState().is(FORGE_ORES)) {
+         var state = block.defaultBlockState();
+         if (state.is(C_ORES) || state.is(FORGE_ORES) || state.is(C_ORES_IN_GROUND)) {
+            return true;
+         }
+         if (state.is(BlockTags.COAL_ORES) || state.is(BlockTags.IRON_ORES)
+            || state.is(BlockTags.COPPER_ORES) || state.is(BlockTags.GOLD_ORES)
+            || state.is(BlockTags.REDSTONE_ORES) || state.is(BlockTags.LAPIS_ORES)
+            || state.is(BlockTags.DIAMOND_ORES) || state.is(BlockTags.EMERALD_ORES)
+            || block == Blocks.ANCIENT_DEBRIS) {
             return true;
          }
       } catch (Throwable ignored) {
@@ -41,7 +63,9 @@ public class OreDiscovery {
          String path = id.getPath().toLowerCase(Locale.ROOT);
          if (path.endsWith("_ore") || path.startsWith("ore_") || path.contains("_ore_")
             || path.equals("ancient_debris")
-            || (path.contains("debris") && !path.contains("brick") && !path.contains("tile") && !path.contains("pillar"))) {
+            || (path.contains("debris") && !path.contains("brick") && !path.contains("tile") && !path.contains("pillar"))
+            || (path.startsWith("raw_") && path.endsWith("_block"))
+            || path.endsWith("_cluster") || path.equals("budding_amethyst")) {
             return true;
          }
       }
@@ -51,7 +75,8 @@ public class OreDiscovery {
          String name = Names.get(block);
          if (name != null) {
             String lower = name.toLowerCase(Locale.ROOT);
-            if (lower.endsWith(" ore") || lower.startsWith("ore ") || lower.contains(" ore ")) {
+            if (lower.endsWith(" ore") || lower.startsWith("ore ") || lower.contains(" ore ")
+               || lower.endsWith(" cluster") || (lower.contains("raw ") && lower.endsWith(" block"))) {
                return true;
             }
          }
@@ -69,6 +94,7 @@ public class OreDiscovery {
    }
 
    public static synchronized void scanOres() {
+      IS_ORE_CACHE.clear();
       DISCOVERED_ORES.clear();
       for (Block block : BuiltInRegistries.BLOCK) {
          if (isOre(block) && !DISCOVERED_ORES.contains(block)) {
