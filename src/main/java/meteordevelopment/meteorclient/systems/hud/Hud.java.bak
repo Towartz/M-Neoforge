@@ -34,6 +34,7 @@ import meteordevelopment.meteorclient.systems.hud.elements.ModuleInfosHud;
 import meteordevelopment.meteorclient.systems.hud.elements.PlayerModelHud;
 import meteordevelopment.meteorclient.systems.hud.elements.PlayerRadarHud;
 import meteordevelopment.meteorclient.systems.hud.elements.PotionTimersHud;
+import meteordevelopment.meteorclient.systems.hud.elements.TimerPlusCharge;
 import meteordevelopment.meteorclient.systems.hud.screens.HudEditorScreen;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.Keybind;
@@ -118,6 +119,7 @@ public class Hud extends System<Hud> implements Iterable<HudElement> {
       this.register(PotionTimersHud.INFO);
       this.register(CombatHud.INFO);
       this.register(ChunkOreRadarHud.INFO);
+      this.register(TimerPlusCharge.INFO);
       if (this.isFirstInit) {
          this.resetToDefaultElements();
       }
