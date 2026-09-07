@@ -606,9 +606,9 @@ public class ChunkScanner extends Module {
    }
 
    @Override
-   public WWidget getWidget(GuiTheme theme) {
+   public WWidget getTopWidget(GuiTheme theme) {
       WVerticalList list = theme.verticalList();
-      WButton openScreenBtn = list.add(theme.button("Open Chunk Inspector")).expandX().widget();
+      WButton openScreenBtn = list.add(theme.button("Open Chunk Scanner")).expandX().widget();
       openScreenBtn.action = () -> {
          this.mc.setScreen(new ChunkScannerScreen(theme, this));
       };
@@ -624,5 +624,10 @@ public class ChunkScanner extends Module {
       }
 
       return list;
+   }
+
+   @Override
+   public WWidget getWidget(GuiTheme theme) {
+      return null;
    }
 }

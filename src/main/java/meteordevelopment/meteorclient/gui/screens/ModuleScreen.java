@@ -37,6 +37,16 @@ public class ModuleScreen extends WindowScreen {
    @Override
    public void initWidgets() {
       this.add(this.theme.label(this.module.description, (double)Utils.getWindowWidth() / 2.0));
+
+      WWidget topWidget = this.module.getTopWidget(this.theme);
+      if (topWidget != null) {
+         this.add(this.theme.horizontalSeparator()).expandX();
+         Cell<WWidget> topCell = this.add(topWidget);
+         if (topWidget instanceof WContainer) {
+            topCell.expandX();
+         }
+      }
+
       if (!this.module.settings.groups.isEmpty()) {
          this.settingsContainer = this.add(this.theme.verticalList()).expandX().widget();
          this.settingsContainer.add(this.theme.settings(this.module.settings)).expandX();

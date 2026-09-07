@@ -67,6 +67,10 @@ public abstract class Module implements ISerializable<Module>, Comparable<Module
       this(category, name, desc, new String[0]);
    }
 
+   public WWidget getTopWidget(GuiTheme theme) {
+      return null;
+   }
+
    public WWidget getWidget(GuiTheme theme) {
       return null;
    }

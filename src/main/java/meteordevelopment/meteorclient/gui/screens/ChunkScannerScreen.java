@@ -48,7 +48,7 @@ public class ChunkScannerScreen extends WindowScreen {
    }
 
    public ChunkScannerScreen(GuiTheme theme, ChunkScanner module) {
-      super(theme, "Chunk Inspector");
+      super(theme, "Chunk Scanner");
       this.module = module;
    }
 
