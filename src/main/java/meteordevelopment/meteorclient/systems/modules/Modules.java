@@ -249,6 +249,12 @@ public class Modules extends System<Modules> {
       this.initRender();
       this.initWorld();
       this.initMisc();
+      this.initPlusCombat();
+      this.initPlusMovement();
+      this.initPlusWorld();
+      this.initPlusRender();
+      this.initPlusPlayer();
+      this.initPlusMisc();
    }
 
    @Override
@@ -775,6 +781,49 @@ public class Modules extends System<Modules> {
       this.add(new ServerSpoof());
       this.add(new SoundBlocker());
       this.add(new Spam());
+   }
+
+   private void initPlusCombat() {
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.AntiBotPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.CriticalsPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.Teams());
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.AutoLeave());
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.TriggerBot());
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.velocity.VelocityPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.combat.plus.KillAuraPlus());
+   }
+
+   private void initPlusMovement() {
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.Freeze());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.InventoryMovePlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.fastladder.FastLadderPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.elytrafly.ElytraFlyPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.fly.FlyPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.jesus.JesusPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.nofall.NoFallPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.noslow.NoSlowPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.speed.SpeedPlus());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.NoJumpDelay());
+      this.add(new meteordevelopment.meteorclient.systems.modules.movement.plus.spider.SpiderPlus());
+   }
+
+   private void initPlusWorld() {
+      this.add(new meteordevelopment.meteorclient.systems.modules.world.plus.GhostBlockFixer());
+      this.add(new meteordevelopment.meteorclient.systems.modules.world.plus.SafeMine());
+      this.add(new meteordevelopment.meteorclient.systems.modules.world.plus.timer.TimerPlus());
+   }
+
+   private void initPlusRender() {
+      this.add(new meteordevelopment.meteorclient.systems.modules.render.plus.KillEffect());
+      this.add(new meteordevelopment.meteorclient.systems.modules.render.plus.ItemHighlightPlus());
+   }
+
+   private void initPlusPlayer() {
+      this.add(new meteordevelopment.meteorclient.systems.modules.player.plus.AutoDropPlus());
+   }
+
+   private void initPlusMisc() {
+      this.add(new meteordevelopment.meteorclient.systems.modules.misc.plus.AutoAccept());
    }
 
    public static class ModuleRegistry extends MappedRegistry<Module> {

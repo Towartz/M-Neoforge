@@ -1,0 +1,203 @@
+package meteordevelopment.meteorclient.systems.modules.movement.plus.elytrafly;
+
+import meteordevelopment.meteorclient.events.entity.player.PlayerMoveEvent;
+import meteordevelopment.meteorclient.events.packets.PacketEvent;
+import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.mixininterface.IVec3d;
+import meteordevelopment.meteorclient.settings.*;
+import meteordevelopment.meteorclient.systems.modules.Categories;
+import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.orbit.EventHandler;
+import meteordevelopment.meteorclient.systems.modules.movement.plus.elytrafly.modes.Control;
+import meteordevelopment.meteorclient.systems.modules.movement.plus.elytrafly.modes.Wasp;
+import net.minecraft.world.entity.Pose;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+
+public class ElytraFlyPlus extends Module {
+    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+
+    public final Setting<ElytraFlyModes> flightMode = sgGeneral.add(new EnumSetting.Builder<ElytraFlyModes>()
+        .name("mode")
+        .description("The mode of flying.")
+        .defaultValue(ElytraFlyModes.Control)
+        .onModuleActivated(s -> onModeChanged(s.get()))
+        .onChanged(this::onModeChanged)
+        .build()
+    );
+
+    public final Setting<Double> horizontal_wasp = sgGeneral.add(new DoubleSetting.Builder()
+        .name("horizontal-speed")
+        .description("How many blocks to move each tick horizontally.")
+        .defaultValue(1.0)
+        .min(0.0)
+        .sliderRange(0.0, 5.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Wasp)
+        .build()
+    );
+
+    public final Setting<Double> fallSpeed_wasp = sgGeneral.add(new DoubleSetting.Builder()
+        .name("fall-speed")
+        .description("How many blocks to fall down each tick.")
+        .defaultValue(0.0)
+        .min(0.0)
+        .sliderRange(0.0, 1.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Wasp)
+        .build()
+    );
+
+    public final Setting<Boolean> smartFall_wasp = sgGeneral.add(new BoolSetting.Builder()
+        .name("smart-fall")
+        .description("Only falls down when looking down.")
+        .defaultValue(true)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Wasp)
+        .build()
+    );
+
+    public final Setting<Double> up_wasp = sgGeneral.add(new DoubleSetting.Builder()
+        .name("up-speed")
+        .description("How many blocks to move up each tick.")
+        .defaultValue(1.0)
+        .min(0.0)
+        .sliderRange(0.0, 5.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Wasp)
+        .build()
+    );
+
+    public final Setting<Double> down_wasp = sgGeneral.add(new DoubleSetting.Builder()
+        .name("down-speed")
+        .description("How many blocks to move down each tick.")
+        .defaultValue(1.0)
+        .min(0.0)
+        .sliderRange(0.0, 5.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Wasp)
+        .build()
+    );
+
+    public final Setting<Double> speed_control = sgGeneral.add(new DoubleSetting.Builder()
+        .name("speed")
+        .description("How many blocks to move each tick.")
+        .defaultValue(1.0)
+        .min(0.0)
+        .sliderRange(0.0, 5.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Control)
+        .build()
+    );
+
+    public final Setting<Double> upMultiplier_control = sgGeneral.add(new DoubleSetting.Builder()
+        .name("up-multiplier")
+        .description("How many times faster should we fly up.")
+        .defaultValue(1.0)
+        .min(0.0)
+        .sliderRange(0.0, 5.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Control)
+        .build()
+    );
+
+    public final Setting<Double> downSpeed_control = sgGeneral.add(new DoubleSetting.Builder()
+        .name("down-speed")
+        .description("How many blocks to move down each tick.")
+        .defaultValue(1.0)
+        .min(0.0)
+        .sliderRange(0.0, 5.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Control)
+        .build()
+    );
+
+    public final Setting<Double> fallSpeed_control = sgGeneral.add(new DoubleSetting.Builder()
+        .name("fall-speed")
+        .description("How many blocks to fall down each tick.")
+        .defaultValue(0.0)
+        .min(0.0)
+        .sliderRange(0.0, 1.0)
+        .visible(() -> this.flightMode.get() == ElytraFlyModes.Control)
+        .build()
+    );
+
+    public final Setting<Boolean> resetSpeed = sgGeneral.add(new BoolSetting.Builder()
+        .name("reset-speed")
+        .description("Reset your speed after disable.")
+        .defaultValue(false)
+        .build()
+    );
+
+    public final Setting<Boolean> noCrash = sgGeneral.add(new BoolSetting.Builder()
+        .name("no-crash")
+        .description("Stops you from going into walls.")
+        .defaultValue(false)
+        .build()
+    );
+
+    public final Setting<Integer> crashLookAhead = sgGeneral.add(new IntSetting.Builder()
+        .name("crash-look-ahead")
+        .description("Distance to look ahead when flying.")
+        .defaultValue(5)
+        .range(1, 15)
+        .sliderMin(1)
+        .visible(this.noCrash::get)
+        .build()
+    );
+
+    private ElytraFlyMode currentMode = new Control();
+
+    public ElytraFlyPlus() {
+        super(Categories.PlusMovement, "elytra-fly+", "Gives you more control over your elytra.");
+    }
+
+    @Override
+    public void onActivate() {
+        if (this.currentMode != null) this.currentMode.onActivate();
+    }
+
+    @Override
+    public void onDeactivate() {
+        if (this.currentMode != null) this.currentMode.onDeactivate();
+    }
+
+    @EventHandler
+    private void onPlayerMove(PlayerMoveEvent event) {
+        if (this.currentMode != null) this.currentMode.onPlayerMove(event);
+        if (this.noCrash.get() && mc.player != null && mc.level != null && mc.player.getPose() == Pose.FALL_FLYING) {
+            Vec3 lookAheadPos = mc.player.position().add(mc.player.getDeltaMovement().normalize().scale(this.crashLookAhead.get()));
+            ClipContext raycastContext = new ClipContext(
+                mc.player.position(),
+                new Vec3(lookAheadPos.x, mc.player.getY(), lookAheadPos.z),
+                ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE,
+                mc.player
+            );
+            HitResult hitResult = mc.level.clip(raycastContext);
+            if (hitResult != null && hitResult.getType() == HitResult.Type.BLOCK) {
+                ((IVec3d) event.movement).set(0.0, this.currentMode.velY, 0.0);
+            }
+        }
+    }
+
+    @EventHandler
+    private void onTick(TickEvent.Post event) {
+        if (this.currentMode != null) this.currentMode.onTick();
+    }
+
+    @EventHandler
+    private void onPreTick(TickEvent.Pre event) {
+        if (this.currentMode != null) this.currentMode.onPreTick();
+    }
+
+    @EventHandler
+    private void onPacketSend(PacketEvent.Send event) {
+        if (this.currentMode != null) this.currentMode.onPacketSend(event);
+    }
+
+    @EventHandler
+    private void onPacketReceive(PacketEvent.Receive event) {
+        if (this.currentMode != null) this.currentMode.onPacketReceive(event);
+    }
+
+    private void onModeChanged(ElytraFlyModes mode) {
+        switch (mode) {
+            case Control -> this.currentMode = new Control();
+            case Wasp -> this.currentMode = new Wasp();
+        }
+    }
+}

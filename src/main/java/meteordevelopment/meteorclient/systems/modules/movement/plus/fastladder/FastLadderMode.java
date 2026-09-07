@@ -1,0 +1,24 @@
+package meteordevelopment.meteorclient.systems.modules.movement.plus.fastladder;
+
+import meteordevelopment.meteorclient.events.packets.PacketEvent;
+import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import net.minecraft.client.Minecraft;
+
+public class FastLadderMode {
+    protected final Minecraft mc;
+    protected final FastLadderPlus settings = (FastLadderPlus) Modules.get().get(FastLadderPlus.class);
+    private final FastLadderModes type;
+
+    public FastLadderMode(FastLadderModes type) {
+        this.mc = Minecraft.getInstance();
+        this.type = type;
+    }
+
+    public void onSendPacket(PacketEvent.Send event) {}
+    public void onSentPacket(PacketEvent.Sent event) {}
+    public void onTickEventPre(TickEvent.Pre event) {}
+    public void onTickEventPost(TickEvent.Post event) {}
+    public void onActivate() {}
+    public void onDeactivate() {}
+}

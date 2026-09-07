@@ -78,6 +78,29 @@ public abstract class ClientPlayerEntityMixin extends AbstractClientPlayer {
    }
 
    @Inject(
+      method = {"tickMovement"},
+      at = {@At(
+         value = "INVOKE",
+         target = "Lnet/minecraft/client/network/ClientPlayerEntity;isUsingItem()Z",
+         ordinal = 0
+      )}
+   )
+   private void hookCustomMultiplier(CallbackInfo ci) {
+      meteordevelopment.meteorclient.systems.modules.movement.plus.noslow.NoSlowPlus noSlowPlus = Modules.get() != null ? Modules.get().get(meteordevelopment.meteorclient.systems.modules.movement.plus.noslow.NoSlowPlus.class) : null;
+      if (noSlowPlus != null && noSlowPlus.isActive()) {
+         meteordevelopment.meteorclient.events.entity.player.PlayerUseMultiplierEvent event = new meteordevelopment.meteorclient.events.entity.player.PlayerUseMultiplierEvent(0.2F, 0.2F);
+         MeteorClient.EVENT_BUS.post(event);
+         if (event.getForward() != 0.2F || event.getSideways() != 0.2F) {
+            this.input.forwardImpulse /= 0.2F;
+            this.input.leftImpulse /= 0.2F;
+            this.input.forwardImpulse *= event.getForward();
+            this.input.leftImpulse *= event.getSideways();
+         }
+      }
+   }
+
+
+   @Inject(
       method = {"isSneaking"},
       at = {@At("HEAD")},
       cancellable = true
