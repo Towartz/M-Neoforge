@@ -31,5 +31,9 @@ public class EntityOutlineShader extends EntityShader {
       this.shader.set("u_FillOpacity", esp.fillOpacity.get());
       this.shader.set("u_ShapeMode", esp.shapeMode.get().ordinal());
       this.shader.set("u_GlowMultiplier", esp.glowMultiplier.get());
+      this.shader.set("u_Rainbow", esp.shaderRainbow.get() ? 1 : 0);
+      this.shader.set("u_RainbowSpeed", (float)(double)esp.shaderRainbowSpeed.get());
+      this.shader.set("u_Pulse", esp.shaderPulse.get() ? 1 : 0);
+      this.shader.set("u_PulseSpeed", (float)(double)esp.shaderPulseSpeed.get());
    }
 }

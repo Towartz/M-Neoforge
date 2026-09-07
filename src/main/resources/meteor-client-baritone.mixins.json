@@ -6,7 +6,8 @@
   "client": [
     "BaritoneBlockUtilsMixin",
     "ComeCommandMixin",
-    "MineCommandMixin"
+    "MineCommandMixin",
+    "SurfaceCommandMixin"
   ],
   "injectors": {
     "defaultRequire": 0

@@ -23,28 +23,40 @@ public class GotoSurface extends Module {
    private final SettingGroup sgSafety = this.settings.createGroup("Safety & Durability");
 
    public final Setting<Boolean> preferNaturalCaves = this.sgGeneral
-      .add(new BoolSetting.Builder().name("prefer-natural-caves").description("Favors open cave tunnels, ravines, and water columns to maximize pickaxe durability.").defaultValue(Boolean.valueOf(true)).build());
+      .add(new BoolSetting.Builder().name("prefer-natural-caves").description("Favors open cave tunnels, ravines, and water columns to maximize pickaxe durability.").defaultValue(true).build());
 
    public final Setting<Double> breakPenalty = this.sgGeneral
       .add(new DoubleSetting.Builder().name("break-penalty").description("Path cost penalty for breaking blocks. Higher values force longer cave walking over digging.").defaultValue(60.0).range(5.0, 200.0).sliderRange(10.0, 100.0).visible(this.preferNaturalCaves::get).build());
 
    public final Setting<Boolean> allowPlace = this.sgGeneral
-      .add(new BoolSetting.Builder().name("allow-place").description("Allows placing throwaway blocks (cobble, dirt, deepslate) to bridge, climb, or pillar.").defaultValue(Boolean.valueOf(true)).build());
+      .add(new BoolSetting.Builder().name("allow-place").description("Allows placing throwaway blocks (cobble, dirt, deepslate) to bridge, climb, or pillar.").defaultValue(true).build());
 
    public final Setting<Integer> minSurfaceY = this.sgGeneral
-      .add(new IntSetting.Builder().name("min-surface-y").description("Minimum Y level to consider as reaching the surface.").defaultValue(Integer.valueOf(62)).min(0).max(320).sliderRange(50, 100).build());
+      .add(new IntSetting.Builder().name("min-surface-y").description("Minimum Y level to consider as reaching the surface.").defaultValue(62).min(0).max(320).sliderRange(50, 100).build());
 
    public final Setting<Boolean> protectDurability = this.sgSafety
-      .add(new BoolSetting.Builder().name("protect-low-durability").description("Warns if your held pickaxe has <= 15 durability remaining.").defaultValue(Boolean.valueOf(true)).build());
+      .add(new BoolSetting.Builder().name("protect-low-durability").description("Warns if your held pickaxe has <= 15 durability remaining.").defaultValue(true).build());
 
    public final Setting<Boolean> chatFeedback = this.sgGeneral
-      .add(new BoolSetting.Builder().name("chat-feedback").description("Shows escape progress and durability reports in chat.").defaultValue(Boolean.valueOf(true)).build());
+      .add(new BoolSetting.Builder().name("chat-feedback").description("Shows escape progress and durability reports in chat.").defaultValue(true).build());
 
    private int idleTicks = 0;
    private boolean escalatedToExcavation = false;
+   private Integer targetX = null;
+   private Integer targetZ = null;
 
    public GotoSurface() {
-      super(Categories.World, "goto-surface", "Intelligently navigates through natural caves, ravines, and openings to escape to the surface while preserving pickaxe durability.");
+      super(Categories.World, "goto-surface", "Intelligently navigates through natural openings or terrain to reach the surface with dynamic chunk elevation.");
+   }
+
+   public void setTarget(int x, int z) {
+      this.targetX = x;
+      this.targetZ = z;
+   }
+
+   public void clearTarget() {
+      this.targetX = null;
+      this.targetZ = null;
    }
 
    @Override
@@ -82,18 +94,28 @@ public class GotoSurface extends Module {
       }
 
       double penalty = this.preferNaturalCaves.get() ? this.breakPenalty.get() : 5.0;
-      boolean started = SurfaceEscapeEngine.startEscape(penalty, this.allowPlace.get(), minY);
-      if (started) {
-         int dist = SurfaceEscapeEngine.getDistanceToSurface(minY);
-         int airShaft = SurfaceEscapeEngine.detectVerticalAirShaft(this.mc.player.blockPosition());
-         int blocksInInv = SurfaceEscapeEngine.countThrowawayBlocksInInventory();
-
-         if (airShaft >= 4 && blocksInInv >= 4 && this.chatFeedback.get()) {
-            this.info("Vertical shaft detected (%d blocks air). Pillaring straight up to surface...", airShaft);
-         } else if (this.chatFeedback.get()) {
-            this.info("Escaping to surface (approx %d blocks above). Following natural openings...", dist);
+      boolean started;
+      if (this.targetX != null && this.targetZ != null) {
+         started = SurfaceEscapeEngine.startNavigation(this.targetX, this.targetZ, penalty, this.allowPlace.get(), minY);
+         if (started && this.chatFeedback.get()) {
+            this.info("Navigating to surface at [%d, %d] with dynamic chunk heightmap...", this.targetX, this.targetZ);
          }
       } else {
+         started = SurfaceEscapeEngine.startEscape(penalty, this.allowPlace.get(), minY);
+         if (started) {
+            int dist = SurfaceEscapeEngine.getDistanceToSurface(minY);
+            int airShaft = SurfaceEscapeEngine.detectVerticalAirShaft(this.mc.player.blockPosition());
+            int blocksInInv = SurfaceEscapeEngine.countThrowawayBlocksInInventory();
+
+            if (airShaft >= 4 && blocksInInv >= 4 && this.chatFeedback.get()) {
+               this.info("Vertical shaft detected (%d blocks air). Pillaring straight up to surface...", airShaft);
+            } else if (this.chatFeedback.get()) {
+               this.info("Escaping to surface (approx %d blocks above). Following natural openings...", dist);
+            }
+         }
+      }
+
+      if (!started) {
          this.toggle();
       }
    }
@@ -101,6 +123,8 @@ public class GotoSurface extends Module {
    @Override
    public void onDeactivate() {
       SurfaceEscapeEngine.stopEscape();
+      this.targetX = null;
+      this.targetZ = null;
    }
 
    @EventHandler
@@ -114,8 +138,13 @@ public class GotoSurface extends Module {
          int consumed = SurfaceEscapeEngine.getDurabilityConsumed();
 
          if (this.chatFeedback.get()) {
-            this.info("Successfully escaped to surface at [%d, %d, %d]! Pickaxe durability consumed: (highlight)%d(default).",
-               pos.getX(), pos.getY(), pos.getZ(), consumed);
+            if (SurfaceEscapeEngine.isTargetedNavigation()) {
+               this.info("Successfully reached target surface at [%d, %d, %d]! Pickaxe durability consumed: (highlight)%d(default).",
+                  pos.getX(), pos.getY(), pos.getZ(), consumed);
+            } else {
+               this.info("Successfully escaped to surface at [%d, %d, %d]! Pickaxe durability consumed: (highlight)%d(default).",
+                  pos.getX(), pos.getY(), pos.getZ(), consumed);
+            }
          }
 
          this.mc.level.playLocalSound(pos.getX(), pos.getY(), pos.getZ(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 1.0F, 1.0F, false);
@@ -131,7 +160,7 @@ public class GotoSurface extends Module {
 
          if (!isPathing && !isCalculating) {
             this.idleTicks++;
-            if (this.idleTicks > 25) {
+            if (this.idleTicks > 80) {
                this.idleTicks = 0;
                if (!this.escalatedToExcavation) {
                   this.escalatedToExcavation = true;

@@ -58,6 +58,7 @@
     "ClientChunkMapAccessor",
     "ClientConnectionAccessor",
     "ClientConnectionMixin",
+    "ClientExtensionsManagerMixin",
     "ClientPlayerEntityAccessor",
     "ClientPlayerEntityMixin",
     "ClientPlayerInteractionManagerAccessor",
