@@ -44,10 +44,15 @@ public final class ChunkPacker {
                 }
                 PalettedContainer<BlockState> bsc = extendedblockstorage.getStates();
                 for (int y = 0; y < 16; y++) {
+                    int adjY = y0 * 16 + y;
                     for (int z = 0; z < 16; z++) {
                         for (int x = 0; x < 16; x++) {
-                            int adjY = y0 * 16 + y;
+                            int index = CachedChunk.getPositionIndex(x, adjY, z);
                             BlockState state = bsc.get(x, y, z);
+                            boolean[] bits = getPathingBlockType(state, chunk, x, adjY, z).getBits();
+                            bitSet.set(index, bits[0]);
+                            bitSet.set(index + 1, bits[1]);
+
                             Block block = state.getBlock();
                             if (CachedChunk.BLOCKS_TO_KEEP_TRACK_OF.contains(block)) {
                                 String blockName = BlockUtils.blockToString(block);
@@ -81,18 +86,17 @@ public final class ChunkPacker {
     private static PathingBlockType getPathingBlockType(BlockState state, LevelChunk chunk, int x, int y, int z) {
         Block block = state.getBlock();
         if (state.liquid()) {
-            int adjY = y + chunk.getMinBuildHeight();
             if (MovementHelper.possiblyFlowing(state)
-                    || MovementHelper.possiblyFlowing(getFromChunk(chunk, x, adjY + 1, z))
-                    || (x != 15 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x + 1, adjY, z)))
-                    || (x != 0 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x - 1, adjY, z)))
-                    || (z != 15 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x, adjY, z + 1)))
-                    || (z != 0 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x, adjY, z - 1)))
+                    || (y + 1 < chunk.getHeight() && MovementHelper.possiblyFlowing(getFromChunk(chunk, x, y + 1, z)))
+                    || (x != 15 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x + 1, y, z)))
+                    || (x != 0 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x - 1, y, z)))
+                    || (z != 15 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x, y, z + 1)))
+                    || (z != 0 && MovementHelper.possiblyFlowing(getFromChunk(chunk, x, y, z - 1)))
             ) {
                 return PathingBlockType.AVOID;
             }
             if (x == 0 || x == 15 || z == 0 || z == 15) {
-                Vec3 flow = state.getFluidState().getFlow(chunk.getLevel(), new BlockPos(x + (chunk.getPos().x << 4), y, z + (chunk.getPos().z << 4)));
+                Vec3 flow = state.getFluidState().getFlow(chunk.getLevel(), new BlockPos(x + (chunk.getPos().x << 4), y + chunk.getMinBuildHeight(), z + (chunk.getPos().z << 4)));
                 if (flow.x != 0.0 || flow.z != 0.0) {
                     return PathingBlockType.WATER;
                 }

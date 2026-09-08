@@ -82,9 +82,9 @@ public class WMeteorTextBox extends WTextBox implements MeteorWidget {
       this.animProgress = this.animProgress + delta * 10.0 * (double)(this.focused && this.cursorVisible ? 1 : -1);
       this.animProgress = Mth.clamp(this.animProgress, 0.0, 1.0);
       if (this.focused && this.cursorVisible || this.animProgress > 0.0) {
-         renderer.setAlpha(this.animProgress);
-         renderer.quad(this.x + pad + this.getTextWidth(this.cursor) - overflowWidth, this.y + pad, theme.scale(1.0), theme.textHeight(), theme.textColor.get());
-         renderer.setAlpha(1.0);
+         Color cursorColor = new Color(theme.textColor.get());
+         cursorColor.a = (int)((double)cursorColor.a * this.animProgress);
+         renderer.quad(this.x + pad + this.getTextWidth(this.cursor) - overflowWidth, this.y + pad, theme.scale(1.0), theme.textHeight(), cursorColor);
       }
 
       renderer.scissorEnd();

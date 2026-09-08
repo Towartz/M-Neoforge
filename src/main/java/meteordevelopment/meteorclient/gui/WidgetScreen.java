@@ -49,8 +49,8 @@ public abstract class WidgetScreen extends Screen {
       this.root = new WidgetScreen.WFullScreenRoot();
       this.theme = theme;
       this.root.theme = theme;
+      this.animProgress = 1.0;
       if (this.parent != null) {
-         this.animProgress = 1.0;
          if (this instanceof TabScreen && this.parent instanceof TabScreen) {
             this.parent = ((TabScreen)this.parent).parent;
          }
@@ -216,8 +216,6 @@ public abstract class WidgetScreen extends Screen {
    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
       if (!Utils.canUpdate()) {
          this.renderBackground(context, mouseX, mouseY, delta);
-      } else {
-         this.renderTransparentBackground(context);
       }
 
       double s = MeteorClient.mc.getWindow().getGuiScale();

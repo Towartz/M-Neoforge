@@ -272,13 +272,13 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
       Utils.unscaledProjection();
       boolean renderSplitLines = this.pressed && !this.selection.isEmpty() && this.moved;
       if (renderSplitLines || this.splitLinesAnimation > 0.0) {
-         this.renderSplitLines(renderSplitLines, (double)(delta / 20.0F));
+         this.renderSplitLines(renderSplitLines, (double)(delta / 20.0F), context.pose());
       }
 
       renderElements(context);
       Renderer2D.COLOR.begin();
       this.onRender(mouseX, mouseY);
-      Renderer2D.COLOR.render(new PoseStack());
+      Renderer2D.COLOR.render(context.pose());
       Utils.scaledProjection();
       this.runAfterRenderTasks();
    }
@@ -306,7 +306,7 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
          || s instanceof HudElementScreen;
    }
 
-   private void renderSplitLines(boolean increment, double delta) {
+   private void renderSplitLines(boolean increment, double delta, PoseStack pose) {
       if (increment) {
          this.splitLinesAnimation += delta * 6.0;
       } else {
@@ -327,7 +327,7 @@ public class HudEditorScreen extends WidgetScreen implements Snapper.Container {
       this.renderSplitLine(renderer, 0.0, h3, w, h3);
       this.renderSplitLine(renderer, 0.0, h3 * 2.0, w, h3 * 2.0);
       SPLIT_LINES_COLOR.a = prevA;
-      renderer.render(new PoseStack());
+      renderer.render(pose != null ? pose : new PoseStack());
    }
 
    private void renderSplitLine(Renderer2D renderer, double x, double y, double destX, double destY) {

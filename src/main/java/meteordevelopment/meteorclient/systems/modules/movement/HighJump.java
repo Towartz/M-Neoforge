@@ -21,4 +21,8 @@ public class HighJump extends Module {
    private void onJumpVelocityMultiplier(JumpVelocityMultiplierEvent event) {
       event.multiplier = (float)((double)event.multiplier * this.multiplier.get());
    }
+
+   public double getMultiplier() {
+      return this.multiplier.get();
+   }
 }

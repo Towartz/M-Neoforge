@@ -15,6 +15,7 @@ import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL32C;
 
 public class GL {
@@ -45,12 +46,26 @@ public class GL {
       final boolean depth;
       final boolean cull;
       final boolean scissor;
+      final boolean depthMask;
+      final int blendEquation;
+      final int blendSrcRgb;
+      final int blendDstRgb;
+      final int blendSrcAlpha;
+      final int blendDstAlpha;
 
-      GlState(boolean blend, boolean depth, boolean cull, boolean scissor) {
+      GlState(boolean blend, boolean depth, boolean cull, boolean scissor,
+              boolean depthMask, int blendEquation,
+              int blendSrcRgb, int blendDstRgb, int blendSrcAlpha, int blendDstAlpha) {
          this.blend = blend;
          this.depth = depth;
          this.cull = cull;
          this.scissor = scissor;
+         this.depthMask = depthMask;
+         this.blendEquation = blendEquation;
+         this.blendSrcRgb = blendSrcRgb;
+         this.blendDstRgb = blendDstRgb;
+         this.blendSrcAlpha = blendSrcAlpha;
+         this.blendDstAlpha = blendDstAlpha;
       }
    }
 
@@ -121,7 +136,6 @@ public class GL {
 
    public static void bindVertexArray(int vao) {
       GlStateManager._glBindVertexArray(vao);
-      BufferUploader.reset();
    }
 
    public static void bindVertexBuffer(int vbo) {
@@ -260,7 +274,13 @@ public class GL {
       blendSaved = BLEND.get();
       cullSaved = CULL.get();
       scissorSaved = SCISSOR.get();
-      STATE_STACK.push(new GlState(blendSaved, depthSaved, cullSaved, scissorSaved));
+      boolean depthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+      int blendEquation = GL11.glGetInteger(GL20.GL_BLEND_EQUATION_RGB);
+      int blendSrcRgb = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+      int blendDstRgb = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+      int blendSrcAlpha = GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA);
+      int blendDstAlpha = GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA);
+      STATE_STACK.push(new GlState(blendSaved, depthSaved, cullSaved, scissorSaved, depthMask, blendEquation, blendSrcRgb, blendDstRgb, blendSrcAlpha, blendDstAlpha));
    }
 
    public static void restoreState() {
@@ -270,11 +290,17 @@ public class GL {
          BLEND.set(state.blend);
          CULL.set(state.cull);
          SCISSOR.set(state.scissor);
+         GlStateManager._depthMask(state.depthMask);
+         GlStateManager._blendEquation(state.blendEquation);
+         GlStateManager._blendFuncSeparate(state.blendSrcRgb, state.blendDstRgb, state.blendSrcAlpha, state.blendDstAlpha);
       } else {
          DEPTH.set(depthSaved);
          BLEND.set(blendSaved);
          CULL.set(cullSaved);
          SCISSOR.set(scissorSaved);
+         GlStateManager._depthMask(true);
+         GlStateManager._blendEquation(GL14.GL_FUNC_ADD);
+         GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
       }
 
       disableLineSmooth();
@@ -294,7 +320,7 @@ public class GL {
    public static void enableBlend() {
       GlStateManager._enableBlend();
       GlStateManager._blendEquation(GL14.GL_FUNC_ADD);
-      GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
+      GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
    }
 
    public static void disableBlend() {

@@ -118,8 +118,10 @@ public abstract class ClientPlayNetworkHandlerMixin extends ClientCommonPacketLi
       at = {@At("TAIL")}
    )
    private void onChunkData(ClientboundLevelChunkWithLightPacket packet, CallbackInfo info) {
-      LevelChunk chunk = this.minecraft.level.getChunk(packet.getX(), packet.getZ());
-      MeteorClient.EVENT_BUS.post(new ChunkDataEvent(chunk));
+      if (this.minecraft != null && this.minecraft.level != null) {
+         LevelChunk chunk = this.minecraft.level.getChunk(packet.getX(), packet.getZ());
+         MeteorClient.EVENT_BUS.post(new ChunkDataEvent(chunk));
+      }
    }
 
    @Inject(
@@ -143,6 +145,9 @@ public abstract class ClientPlayNetworkHandlerMixin extends ClientCommonPacketLi
       at = {@At("HEAD")}
    )
    private void onEntitiesDestroy(ClientboundRemoveEntitiesPacket packet, CallbackInfo ci) {
+      if (this.minecraft == null || this.minecraft.level == null) {
+         return;
+      }
       IntListIterator var3 = packet.getEntityIds().iterator();
 
       while (var3.hasNext()) {
@@ -169,6 +174,9 @@ public abstract class ClientPlayNetworkHandlerMixin extends ClientCommonPacketLi
       at = {@At("TAIL")}
    )
    private void onItemPickupAnimation(ClientboundTakeItemEntityPacket packet, CallbackInfo info) {
+      if (this.minecraft == null || this.minecraft.level == null) {
+         return;
+      }
       Entity itemEntity = this.minecraft.level.getEntity(packet.getItemId());
       Entity entity = this.minecraft.level.getEntity(packet.getPlayerId());
       if (itemEntity instanceof ItemEntity && entity == this.minecraft.player) {

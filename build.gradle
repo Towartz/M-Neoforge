@@ -61,9 +61,8 @@ dependencies {
     // Shaded / required dependencies
     implementation 'org.javassist:javassist:3.30.2-GA'
     implementation 'org.reflections:reflections:0.10.2'
+    implementation 'org.tukaani:xz:1.9'
 
-    // Baritone implementation from local libs
-    implementation files('libs/baritone-unoptimized-neoforge-1.11.3.jar')
 }
 
 tasks.named('compileStubsJava') {
@@ -81,18 +80,8 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('jar') {
     from {
-        zipTree('libs/baritone-unoptimized-neoforge-1.11.3.jar').matching {
-            exclude 'META-INF/MANIFEST.MF'
-            exclude 'META-INF/neoforge.mods.toml'
-            exclude 'mixins.baritone.json'
-            exclude 'baritone/command/argument/CommandArgument*.class'
-            exclude 'baritone/command/argument/CommandArguments*.class'
-            exclude 'baritone/cache/ChunkPacker*.class'
-        }
-    }
-    from {
         configurations.runtimeClasspath.filter {
-            it.name.startsWith('reflections-')
+            it.name.startsWith('reflections-') || it.name.startsWith('xz-')
         }.collect {
             zipTree(it).matching {
                 exclude 'META-INF/**'

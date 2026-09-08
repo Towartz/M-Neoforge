@@ -16,10 +16,16 @@ import java.lang.reflect.Field;
 import java.util.function.Predicate;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.movement.Step;
+import meteordevelopment.meteorclient.systems.modules.movement.NoFall;
+import meteordevelopment.meteorclient.systems.modules.movement.Sprint;
+import meteordevelopment.meteorclient.systems.modules.movement.speed.Speed;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
 
@@ -48,7 +54,9 @@ public class BaritonePathManager implements IPathManager {
       this.rotationField = rotationField;
       this.settings = new BaritoneSettings();
       BaritoneAPI.getSettings().repackOnAnyBlockChange.value = false;
-      BaritoneAPI.getSettings().chunkCaching.value = false;
+      BaritoneAPI.getSettings().chunkCaching.value = true;
+      BaritoneAPI.getSettings().pathingMapDefaultSize.value = 8192;
+      BaritoneAPI.getSettings().minimumImprovementRepropagation.value = true;
       BaritoneAPI.getProvider().getPrimaryBaritone().getPathingControlManager().registerProcess(new BaritonePathManager.BaritoneProcess());
    }
 
@@ -123,6 +131,30 @@ public class BaritonePathManager implements IPathManager {
       priority = 200
    )
    private void onTick(TickEvent.Pre event) {
+      if (MeteorClient.mc.player != null) {
+         try {
+            boolean stepActive = Modules.get().isActive(Step.class)
+               || MeteorClient.mc.player.maxUpStep() >= 1.0f
+               || MeteorClient.mc.player.getAttributeValue(Attributes.STEP_HEIGHT) >= 1.0;
+            if (stepActive) {
+               BaritoneAPI.getSettings().assumeStep.value = true;
+            }
+
+            if (Modules.get().isActive(NoFall.class)) {
+               BaritoneAPI.getSettings().maxFallHeightNoWater.value = 159159;
+            }
+
+            if (Modules.get().isActive(Sprint.class)) {
+               BaritoneAPI.getSettings().allowSprint.value = true;
+            }
+
+            if (Modules.get().isActive(Speed.class)) {
+               BaritoneAPI.getSettings().allowSprint.value = true;
+               BaritoneAPI.getSettings().overshootTraverse.value = true;
+            }
+         } catch (Exception ignored) {}
+      }
+
       if (this.directionGoal != null) {
          if (this.directionGoal != BaritoneAPI.getProvider().getPrimaryBaritone().getCustomGoalProcess().getGoal()) {
             this.directionGoal = null;

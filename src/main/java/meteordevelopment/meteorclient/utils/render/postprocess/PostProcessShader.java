@@ -79,7 +79,6 @@ public abstract class PostProcessShader {
          this.shader.set("u_Time", GLFW.glfwGetTime());
          this.setUniforms();
          PostProcessRenderer.render();
-         PostProcessRenderer.endRender();
          GL.useProgram(0);
          GL.bindTexture(0);
          GL.bindTexture(0, 1);

@@ -37,6 +37,7 @@ public class ChunkScannerEngine {
       public BlockPos nearestPos = null;
       public double nearestDistSq = Double.MAX_VALUE;
       public final List<BlockPos> positions = new ArrayList<>();
+      public final List<BlockPos> dangerPositions = new ArrayList<>();
 
       public DiscoveredBlockEntry(Block block, ItemStack icon, String displayName, String modName, boolean isOre, boolean isCustomTarget) {
          this.block = block;
@@ -65,6 +66,41 @@ public class ChunkScannerEngine {
             }
          } else if (this.nearestPos == null) {
             this.nearestPos = pos;
+         }
+      }
+
+      public void addDangerBlock(BlockPos pos) {
+         this.dangerPositions.add(pos);
+      }
+
+      public int getDangerCount() {
+         return this.dangerPositions.size();
+      }
+
+      public boolean hasDangerPositions() {
+         return !this.dangerPositions.isEmpty();
+      }
+
+      public void recalculateBounds(BlockPos playerPos) {
+         this.minY = Integer.MAX_VALUE;
+         this.maxY = Integer.MIN_VALUE;
+         this.nearestDistSq = Double.MAX_VALUE;
+         this.nearestPos = null;
+
+         List<BlockPos> checkList = !this.positions.isEmpty() ? this.positions : this.dangerPositions;
+         for (BlockPos pos : checkList) {
+            if (pos.getY() < this.minY) this.minY = pos.getY();
+            if (pos.getY() > this.maxY) this.maxY = pos.getY();
+
+            if (playerPos != null) {
+               double distSq = pos.distSqr(playerPos);
+               if (distSq < this.nearestDistSq) {
+                  this.nearestDistSq = distSq;
+                  this.nearestPos = pos;
+               }
+            } else if (this.nearestPos == null) {
+               this.nearestPos = pos;
+            }
          }
       }
 
@@ -116,6 +152,12 @@ public class ChunkScannerEngine {
       }
    }
 
+   public static boolean isSculkThreat(Block block) {
+      return block == net.minecraft.world.level.block.Blocks.SCULK_SENSOR
+         || block == net.minecraft.world.level.block.Blocks.CALIBRATED_SCULK_SENSOR
+         || block == net.minecraft.world.level.block.Blocks.SCULK_SHRIEKER;
+   }
+
    public static class ChunkScanResult {
       public final ChunkPos chunkPos;
       public final String biomeName;
@@ -123,18 +165,27 @@ public class ChunkScannerEngine {
       public final int totalOres;
       public final int totalCustom;
       public final List<DiscoveredBlockEntry> entries;
+      public final List<BlockPos> sculkThreatPositions;
+      public final int dangerExcludedOresCount;
 
-      public ChunkScanResult(ChunkPos chunkPos, String biomeName, int totalBlocks, int totalOres, int totalCustom, List<DiscoveredBlockEntry> entries) {
+      public ChunkScanResult(ChunkPos chunkPos, String biomeName, int totalBlocks, int totalOres, int totalCustom,
+                             List<DiscoveredBlockEntry> entries, List<BlockPos> sculkThreatPositions, int dangerExcludedOresCount) {
          this.chunkPos = chunkPos;
          this.biomeName = biomeName;
-         this.totalBlocks = totalBlocks;
-         this.totalOres = totalOres;
-         this.totalCustom = totalCustom;
+         this.totalBlocks = Math.max(0, totalBlocks);
+         this.totalOres = Math.max(0, totalOres);
+         this.totalCustom = Math.max(0, totalCustom);
          this.entries = Collections.unmodifiableList(entries);
+         this.sculkThreatPositions = sculkThreatPositions != null ? Collections.unmodifiableList(sculkThreatPositions) : Collections.emptyList();
+         this.dangerExcludedOresCount = dangerExcludedOresCount;
+      }
+
+      public ChunkScanResult(ChunkPos chunkPos, String biomeName, int totalBlocks, int totalOres, int totalCustom, List<DiscoveredBlockEntry> entries) {
+         this(chunkPos, biomeName, totalBlocks, totalOres, totalCustom, entries, Collections.emptyList(), 0);
       }
 
       public ChunkScanResult(ChunkPos chunkPos, String biomeName, int totalOres, List<DiscoveredBlockEntry> entries) {
-         this(chunkPos, biomeName, totalOres, totalOres, 0, entries);
+         this(chunkPos, biomeName, totalOres, totalOres, 0, entries, Collections.emptyList(), 0);
       }
 
       public DiscoveredBlockEntry getClosestEntry(BlockPos playerPos) {
@@ -174,13 +225,18 @@ public class ChunkScannerEngine {
    }
 
    public static ChunkScanResult scanChunk(LevelChunk chunk, BlockPos playerPos) {
-      return scanChunk(chunk, playerPos, ScanMode.Both, null);
+      return scanChunk(chunk, playerPos, ScanMode.Both, null, false, 10);
    }
 
    public static ChunkScanResult scanChunk(LevelChunk chunk, BlockPos playerPos, ScanMode scanMode, List<Block> customBlocksList) {
+      return scanChunk(chunk, playerPos, scanMode, customBlocksList, false, 10);
+   }
+
+   public static ChunkScanResult scanChunk(LevelChunk chunk, BlockPos playerPos, ScanMode scanMode, List<Block> customBlocksList, boolean avoidSculk, int sculkAvoidRadius) {
       if (chunk == null) return null;
       ChunkPos chunkPos = chunk.getPos();
       Map<Block, DiscoveredBlockEntry> entries = new HashMap<>();
+      List<BlockPos> sculkThreats = new ArrayList<>();
       int totalBlocks = 0;
       int totalOres = 0;
       int totalCustom = 0;
@@ -211,6 +267,7 @@ public class ChunkScannerEngine {
          boolean sectionHasTargets = section.maybeHas(state -> {
             if (state.isAir()) return false;
             Block b = state.getBlock();
+            if (isSculkThreat(b)) return true;
             if (includeCustom) {
                if (customSet.contains(b)) return true;
                ResourceLocation id = BuiltInRegistries.BLOCK.getKey(b);
@@ -233,6 +290,13 @@ public class ChunkScannerEngine {
                   if (state.isAir()) continue;
 
                   Block block = state.getBlock();
+                  int worldX = (chunkPos.x << 4) + x;
+                  int worldZ = (chunkPos.z << 4) + z;
+
+                  if (isSculkThreat(block)) {
+                     sculkThreats.add(new BlockPos(worldX, worldY, worldZ));
+                  }
+
                   boolean isCustom = false;
                   if (includeCustom) {
                      Boolean cachedCustom = customLookupCache.get(block);
@@ -255,10 +319,7 @@ public class ChunkScannerEngine {
                      if (isOre) totalOres++;
                      if (isCustom) totalCustom++;
 
-                     int worldX = (chunkPos.x << 4) + x;
-                     int worldZ = (chunkPos.z << 4) + z;
                      BlockPos pos = new BlockPos(worldX, worldY, worldZ);
-
                      final boolean finalIsOre = isOre;
                      final boolean finalIsCustom = isCustom;
 
@@ -277,6 +338,36 @@ public class ChunkScannerEngine {
          }
       }
 
+      int dangerExcludedOres = 0;
+      if (avoidSculk && !sculkThreats.isEmpty()) {
+         double rSq = (double)sculkAvoidRadius * (double)sculkAvoidRadius;
+         for (DiscoveredBlockEntry entry : entries.values()) {
+            List<BlockPos> safePositions = new ArrayList<>();
+            for (BlockPos pos : entry.positions) {
+               boolean isDanger = false;
+               for (BlockPos threat : sculkThreats) {
+                  if (pos.distSqr(threat) <= rSq) {
+                     isDanger = true;
+                     break;
+                  }
+               }
+               if (isDanger) {
+                  entry.addDangerBlock(pos);
+                  dangerExcludedOres++;
+                  totalBlocks--;
+                  if (entry.isOre) totalOres--;
+                  if (entry.isCustomTarget) totalCustom--;
+               } else {
+                  safePositions.add(pos);
+               }
+            }
+            entry.positions.clear();
+            entry.positions.addAll(safePositions);
+            entry.count = safePositions.size();
+            entry.recalculateBounds(playerPos);
+         }
+      }
+
       List<DiscoveredBlockEntry> list = new ArrayList<>(entries.values());
       list.sort(Comparator.comparingInt((DiscoveredBlockEntry e) -> e.count).reversed());
 
@@ -286,27 +377,33 @@ public class ChunkScannerEngine {
       } catch (Throwable ignored) {
       }
 
-      return new ChunkScanResult(chunkPos, biomeName, totalBlocks, totalOres, totalCustom, list);
+      return new ChunkScanResult(chunkPos, biomeName, totalBlocks, totalOres, totalCustom, list, sculkThreats, dangerExcludedOres);
    }
 
    public static ChunkScanResult mergeResults(ChunkPos centerPos, List<ChunkScanResult> results, BlockPos playerPos) {
       if (results == null || results.isEmpty()) {
-         return new ChunkScanResult(centerPos, "Unknown", 0, 0, 0, Collections.emptyList());
+         return new ChunkScanResult(centerPos, "Unknown", 0, 0, 0, Collections.emptyList(), Collections.emptyList(), 0);
       }
       if (results.size() == 1) {
          return results.get(0);
       }
 
       Map<Block, DiscoveredBlockEntry> merged = new HashMap<>();
+      List<BlockPos> mergedThreats = new ArrayList<>();
       int totalBlocks = 0;
       int totalOres = 0;
       int totalCustom = 0;
+      int totalDangerExcluded = 0;
       String biomeName = results.get(0).biomeName;
 
       for (ChunkScanResult res : results) {
          totalBlocks += res.totalBlocks;
          totalOres += res.totalOres;
          totalCustom += res.totalCustom;
+         totalDangerExcluded += res.dangerExcludedOresCount;
+         for (BlockPos tp : res.sculkThreatPositions) {
+            if (!mergedThreats.contains(tp)) mergedThreats.add(tp);
+         }
 
          for (DiscoveredBlockEntry entry : res.entries) {
             DiscoveredBlockEntry target = merged.computeIfAbsent(entry.block, b ->
@@ -315,13 +412,20 @@ public class ChunkScannerEngine {
             for (BlockPos pos : entry.positions) {
                target.addBlock(pos, playerPos);
             }
+            for (BlockPos dpos : entry.dangerPositions) {
+               target.addDangerBlock(dpos);
+            }
          }
+      }
+
+      for (DiscoveredBlockEntry target : merged.values()) {
+         target.recalculateBounds(playerPos);
       }
 
       List<DiscoveredBlockEntry> list = new ArrayList<>(merged.values());
       list.sort(Comparator.comparingInt((DiscoveredBlockEntry e) -> e.count).reversed());
 
-      return new ChunkScanResult(centerPos, biomeName, totalBlocks, totalOres, totalCustom, list);
+      return new ChunkScanResult(centerPos, biomeName, totalBlocks, totalOres, totalCustom, list, mergedThreats, totalDangerExcluded);
    }
 
    public static String getBaseOrePath(String path) {

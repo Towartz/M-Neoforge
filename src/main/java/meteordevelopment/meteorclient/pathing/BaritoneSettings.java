@@ -398,6 +398,8 @@ public class BaritoneSettings implements IPathManager.ISettings {
       addDescription(
          "mineScanDroppedItems", "While mining, should it also consider dropped items of the correct type as a pathing destination (as well as ore blocks)?"
       );
+      addDescription("mineOnlyLoadedChunks", "Only search and mine target blocks within currently loaded chunks. Prevents reading unloaded disk chunks or scanning chunk rings.");
+      addDescription("mineMaxChunkRadius", "Maximum chunk radius to scan for random blocks in world (default 8).");
       addDescription("minimumImprovementRepropagation", "Don't repropagate cost improvements below 0.01 ticks.");
       addDescription(
          "minYLevelWhileMining",
@@ -453,6 +455,12 @@ public class BaritoneSettings implements IPathManager.ISettings {
       addDescription("renderPath", "Render the path");
       addDescription("renderPathAsLine", "Render the path as a line instead of a frickin thingy");
       addDescription("renderPathIgnoreDepth", "Ignore depth when rendering the path");
+      addDescription("renderPathWaypoints", "Renders distinctive waypoint markers and jump/descent indicators along the path.");
+      addDescription("renderScannedNodes", "Renders recently scanned A* frontier nodes during and after path calculation.");
+      addDescription("scannedNodesLimit", "Maximum number of scanned nodes to retain and render at once.");
+      addDescription("scannedNodesFadeTimeMS", "Milliseconds before scanned nodes completely fade away after path calculation.");
+      addDescription("colorScannedNodes", "Color of the scanned A* search frontier nodes.");
+      addDescription("smoothPathLookahead", "Smooths path execution and traverses corners without unnecessary pauses.");
       addDescription("renderSelection", "Render selections");
       addDescription("renderSelectionBoxes", "Render selection boxes");
       addDescription("renderSelectionBoxesIgnoreDepth", "Ignore depth when rendering the selection boxes (to break, to place, to walk into)");

@@ -3,12 +3,17 @@ package meteordevelopment.meteorclient.systems.modules.world;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.Settings;
+import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalGetToBlock;
 import baritone.api.process.IMineProcess;
 import baritone.api.utils.BlockOptionalMeta;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.BlockUpdateEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -35,11 +40,16 @@ import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine;
 import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine.ChunkScanResult;
 import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine.DiscoveredBlockEntry;
 import meteordevelopment.meteorclient.utils.world.OreDiscovery;
+import meteordevelopment.meteorclient.utils.world.OreDropHelper;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.Vec3;
 
 public class ChunkScanner extends Module {
    public enum ScanMode {
@@ -68,6 +78,40 @@ public class ChunkScanner extends Module {
    private final SettingGroup sgTargeting = this.settings.createGroup("Targeting");
    private final SettingGroup sgRender = this.settings.createGroup("Render");
    private final SettingGroup sgMining = this.settings.createGroup("Mining Supervisor");
+   private final SettingGroup sgSafety = this.settings.createGroup("Safety & Warden Guard");
+
+   // Safety & Warden Guard Settings
+   public final Setting<Boolean> avoidSculkThreats = this.sgSafety
+      .add(new BoolSetting.Builder()
+         .name("avoid-sculk-threats")
+         .description("Avoids mining ores or pathing near Sculk Sensors, Sculk Shriekers, and Warden spawn zones.")
+         .defaultValue(true)
+         .onChanged(v -> this.forceScan())
+         .build());
+
+   public final Setting<Integer> sculkAvoidRadius = this.sgSafety
+      .add(new IntSetting.Builder()
+         .name("sculk-avoid-radius")
+         .description("Safety buffer distance in blocks around Sculk Sensors and Shriekers to avoid.")
+         .defaultValue(10)
+         .min(4)
+         .sliderRange(4, 24)
+         .onChanged(v -> this.forceScan())
+         .build());
+
+   public final Setting<Boolean> autoSneakNearSculk = this.sgSafety
+      .add(new BoolSetting.Builder()
+         .name("auto-sneak-near-sculk")
+         .description("Silently crouch/sneak when moving near Sculk Sensors to suppress footstep vibrations.")
+         .defaultValue(true)
+         .build());
+
+   public final Setting<Boolean> wardenEmergencyStop = this.sgSafety
+      .add(new BoolSetting.Builder()
+         .name("warden-emergency-stop")
+         .description("Instantly stops mining and pathing if a Warden is nearby or Darkness effect triggers.")
+         .defaultValue(true)
+         .build());
 
    // Targeting Settings
    public final Setting<ScanMode> scanMode = this.sgTargeting
@@ -131,6 +175,12 @@ public class ChunkScanner extends Module {
    private final Setting<SettingColor> customTracerColor = this.sgRender
       .add(new ColorSetting.Builder().name("custom-tracer-color").description("Color of tracers to custom targeted blocks.").defaultValue(new SettingColor(0, 230, 255, 220)).build());
 
+   private final Setting<Boolean> renderSculkDanger = this.sgRender
+      .add(new BoolSetting.Builder().name("render-sculk-danger").description("Renders 3D danger warning zones around detected Sculk Sensors and Shriekers.").defaultValue(true).build());
+
+   private final Setting<SettingColor> sculkDangerColor = this.sgRender
+      .add(new ColorSetting.Builder().name("sculk-danger-color").description("Color of Sculk danger warning zones.").defaultValue(new SettingColor(255, 30, 30, 70)).build());
+
    // Mining Supervisor & Baritone Settings
    private final Setting<Boolean> supervisor = this.sgMining
       .add(new BoolSetting.Builder().name("active-supervisor").description("Continuously supervises Baritone until all target ores in chunk are cleared.").defaultValue(true).build());
@@ -162,12 +212,35 @@ public class ChunkScanner extends Module {
    private final Setting<Boolean> collectDrops = this.sgMining
       .add(new BoolSetting.Builder().name("collect-dropped-items").description("Scans and collects dropped items while mining.").defaultValue(true).build());
 
+   private final Setting<Integer> dropCollectRadius = this.sgMining
+      .add(new IntSetting.Builder()
+         .name("drop-collect-radius")
+         .description("Radius in blocks to scan and collect nearby dropped ore items.")
+         .defaultValue(16)
+         .min(4)
+         .sliderRange(4, 32)
+         .build());
+
+   private final Setting<Integer> dropCollectTimeout = this.sgMining
+      .add(new IntSetting.Builder()
+         .name("drop-collect-timeout")
+         .description("Maximum seconds to attempt reaching an unreachable drop before skipping it.")
+         .defaultValue(3)
+         .min(1)
+         .sliderRange(1, 10)
+         .build());
+
    private ChunkPos lastChunkPos = null;
    private ChunkScanResult lastResult = null;
    private Block highlightedBlock = null;
 
-   // Active Mining Supervisor State (Sequential Queue)
+   // Active Mining Supervisor State (Sequential Queue & Drop Collection)
    private boolean isMiningChunk = false;
+   private boolean isCollectingDrops = false;
+   private final Set<Integer> blacklistedDropEntityIds = new HashSet<>();
+   private int currentDropTicks = 0;
+   private Integer currentTargetDropId = null;
+   private final Map<BlockPos, Long> recentBrokenOrePositions = new HashMap<>();
    private final List<Block> activeTargets = new ArrayList<>();
    private final List<List<Block>> sequentialTargetQueue = new ArrayList<>();
    private ChunkPos targetChunkPos = null;
@@ -191,6 +264,10 @@ public class ChunkScanner extends Module {
 
    public boolean isMining() {
       return this.isMiningChunk;
+   }
+
+   public boolean isCollectingDrops() {
+      return this.isCollectingDrops;
    }
 
    public boolean getAutoBundleVariants() {
@@ -300,6 +377,11 @@ public class ChunkScanner extends Module {
       this.activeTargets.addAll(nextTargets);
       this.miningStuckTicks = 0;
       this.miningRetryCount = 0;
+      this.isCollectingDrops = false;
+      this.blacklistedDropEntityIds.clear();
+      this.currentTargetDropId = null;
+      this.currentDropTicks = 0;
+      this.recentBrokenOrePositions.clear();
 
       this.applyBaritoneSettings();
 
@@ -314,7 +396,16 @@ public class ChunkScanner extends Module {
          metas.add(new BlockOptionalMeta(b));
       }
 
-      baritone.getMineProcess().mine(0, metas.toArray(new BlockOptionalMeta[0]));
+      List<BlockPos> initialPositions = new ArrayList<>();
+      if (this.lastResult != null) {
+         for (DiscoveredBlockEntry entry : this.lastResult.entries) {
+            if (this.activeTargets.contains(entry.block)) {
+               initialPositions.addAll(entry.positions);
+            }
+         }
+      }
+
+      baritone.getMineProcess().mine(0, metas.toArray(new BlockOptionalMeta[0]), initialPositions);
       this.info("Mining next vein: (highlight)%s(default) (%d remaining in queue).",
          nextTargets.get(0).getName().getString(), this.sequentialTargetQueue.size());
    }
@@ -331,11 +422,38 @@ public class ChunkScanner extends Module {
       s.minYLevelWhileMining.value = this.minY.get();
       s.maxYLevelWhileMining.value = this.maxY.get();
       s.mineScanDroppedItems.value = this.collectDrops.get();
+      s.mineDropLoiterDurationMSThanksLouca.value = 1000L;
+      s.exploreForBlocks.value = false;
+      s.mineOnlyLoadedChunks.value = true;
+      s.mineMaxChunkRadius.value = 8;
+      s.extendCacheOnThreshold.value = true;
+
+      if (this.avoidSculkThreats.get()) {
+         s.avoidance.value = true;
+         addIfMissing(s.blocksToAvoid.value, net.minecraft.world.level.block.Blocks.SCULK_SENSOR);
+         addIfMissing(s.blocksToAvoid.value, net.minecraft.world.level.block.Blocks.CALIBRATED_SCULK_SENSOR);
+         addIfMissing(s.blocksToAvoid.value, net.minecraft.world.level.block.Blocks.SCULK_SHRIEKER);
+
+         addIfMissing(s.blocksToDisallowBreaking.value, net.minecraft.world.level.block.Blocks.SCULK_SENSOR);
+         addIfMissing(s.blocksToDisallowBreaking.value, net.minecraft.world.level.block.Blocks.CALIBRATED_SCULK_SENSOR);
+         addIfMissing(s.blocksToDisallowBreaking.value, net.minecraft.world.level.block.Blocks.SCULK_SHRIEKER);
+      }
+   }
+
+   private static <T> void addIfMissing(List<T> list, T item) {
+      if (list != null && !list.contains(item)) {
+         list.add(item);
+      }
    }
 
    public void stopMining() {
       if (this.isMiningChunk) {
          this.isMiningChunk = false;
+         this.isCollectingDrops = false;
+         this.blacklistedDropEntityIds.clear();
+         this.currentTargetDropId = null;
+         this.currentDropTicks = 0;
+         this.recentBrokenOrePositions.clear();
          this.activeTargets.clear();
          this.sequentialTargetQueue.clear();
          this.targetChunkPos = null;
@@ -366,6 +484,37 @@ public class ChunkScanner extends Module {
    private void onTick(TickEvent.Post event) {
       if (this.mc.player == null || this.mc.level == null) return;
       ChunkPos currentPos = this.mc.player.chunkPosition();
+
+      // Emergency stop if Warden entity is detected nearby or Darkness effect triggers
+      if (this.wardenEmergencyStop.get() && this.isMiningChunk) {
+         boolean wardenNearby = !this.mc.level.getEntitiesOfClass(Warden.class, this.mc.player.getBoundingBox().inflate(36.0)).isEmpty();
+         boolean hasDarkness = this.mc.player.hasEffect(MobEffects.DARKNESS);
+         if (wardenNearby || hasDarkness) {
+            this.warning("Warden threat detected nearby! Aborting mining immediately for safety!");
+            this.stopMining();
+            return;
+         }
+      }
+
+      // Auto-sneak when near sculk threat positions to suppress footstep vibrations
+      if (this.avoidSculkThreats.get() && this.autoSneakNearSculk.get() && this.lastResult != null && !this.lastResult.sculkThreatPositions.isEmpty()) {
+         BlockPos playerPos = this.mc.player.blockPosition();
+         double radius = (double)this.sculkAvoidRadius.get();
+         double rSq = radius * radius;
+         boolean inThreatRange = false;
+         for (BlockPos threat : this.lastResult.sculkThreatPositions) {
+            if (playerPos.distSqr(threat) <= rSq) {
+               inThreatRange = true;
+               break;
+            }
+         }
+         if (inThreatRange) {
+            this.mc.options.keyShift.setDown(true);
+         }
+      }
+
+      long now = System.currentTimeMillis();
+      this.recentBrokenOrePositions.entrySet().removeIf(e -> now - e.getValue() > 10000L);
 
       if (this.lastChunkPos == null || !this.lastChunkPos.equals(currentPos)) {
          this.lastChunkPos = currentPos;
@@ -402,7 +551,65 @@ public class ChunkScanner extends Module {
          }
 
          if (remainingInChunk == 0) {
-            // Current targets in this chunk are all mined!
+            // Check if there are nearby target ore drops to collect before advancing or finishing
+            if (this.collectDrops.get()) {
+               Vec3 playerPos = this.mc.player.position();
+               double radius = (double)this.dropCollectRadius.get();
+               List<ItemEntity> drops = new ArrayList<>(OreDropHelper.findNearbyTargetDrops(this.mc.level, playerPos, radius, this.activeTargets));
+
+               // Also check recent broken ore positions
+               for (BlockPos bPos : this.recentBrokenOrePositions.keySet()) {
+                  Vec3 breakPos = Vec3.atCenterOf(bPos);
+                  for (ItemEntity e : OreDropHelper.findNearbyTargetDrops(this.mc.level, breakPos, 6.0, this.activeTargets)) {
+                     if (!drops.contains(e)) {
+                        drops.add(e);
+                     }
+                  }
+               }
+
+               // Filter out blacklisted (unreachable) drops and dead entities
+               drops.removeIf(e -> !e.isAlive() || this.blacklistedDropEntityIds.contains(e.getId()));
+
+               if (!drops.isEmpty()) {
+                  if (!this.isCollectingDrops) {
+                     this.isCollectingDrops = true;
+                     this.info("Collecting %d nearby dropped ore item(s)...", drops.size());
+                     mineProcess.cancel();
+                     baritone.getPathingBehavior().cancelEverything();
+                  }
+
+                  // Pick nearest drop to player
+                  drops.sort(Comparator.comparingDouble(e -> e.distanceToSqr(playerPos)));
+                  ItemEntity targetDrop = drops.get(0);
+
+                  if (this.currentTargetDropId == null || this.currentTargetDropId != targetDrop.getId()) {
+                     this.currentTargetDropId = targetDrop.getId();
+                     this.currentDropTicks = 0;
+                     baritone.getPathingBehavior().cancelEverything();
+                     baritone.getCustomGoalProcess().setGoalAndPath(new GoalBlock(targetDrop.blockPosition()));
+                  } else {
+                     this.currentDropTicks++;
+                     int maxTicks = this.dropCollectTimeout.get() * 20;
+                     if (this.currentDropTicks >= maxTicks) {
+                        this.blacklistedDropEntityIds.add(targetDrop.getId());
+                        this.currentTargetDropId = null;
+                        this.currentDropTicks = 0;
+                        baritone.getPathingBehavior().cancelEverything();
+                     } else if (!baritone.getPathingBehavior().isPathing()) {
+                        baritone.getCustomGoalProcess().setGoalAndPath(new GoalBlock(targetDrop.blockPosition()));
+                     }
+                  }
+                  return;
+               }
+            }
+
+            // All target blocks and all nearby target drops have been collected!
+            this.isCollectingDrops = false;
+            this.currentTargetDropId = null;
+            this.currentDropTicks = 0;
+            this.blacklistedDropEntityIds.clear();
+            this.recentBrokenOrePositions.clear();
+
             mineProcess.cancel();
             baritone.getPathingBehavior().cancelEverything();
             if (!this.sequentialTargetQueue.isEmpty()) {
@@ -414,6 +621,10 @@ public class ChunkScanner extends Module {
                this.stopMining();
             }
          } else {
+            this.isCollectingDrops = false;
+            this.currentTargetDropId = null;
+            this.currentDropTicks = 0;
+
             // Targets still exist in chunk: ensure mine process is active
             if (!mineProcess.isActive()) {
                this.miningStuckTicks++;
@@ -427,7 +638,15 @@ public class ChunkScanner extends Module {
                      for (Block b : this.activeTargets) {
                         metas.add(new BlockOptionalMeta(b));
                      }
-                     mineProcess.mine(0, metas.toArray(new BlockOptionalMeta[0]));
+                     List<BlockPos> initialPositions = new ArrayList<>();
+                     if (this.lastResult != null) {
+                        for (DiscoveredBlockEntry entry : this.lastResult.entries) {
+                           if (this.activeTargets.contains(entry.block)) {
+                              initialPositions.addAll(entry.positions);
+                           }
+                        }
+                     }
+                     mineProcess.mine(0, metas.toArray(new BlockOptionalMeta[0]), initialPositions);
                   } else {
                      // Skip to next if unreachable after 3 attempts
                      this.warning("Could not reach remaining target blocks in chunk. Skipping...");
@@ -465,6 +684,16 @@ public class ChunkScanner extends Module {
             if (this.supervisor.get() && this.isMiningChunk && !this.activeTargets.isEmpty()) {
                if (this.activeTargets.contains(oldBlock) && event.newState.isAir()) {
                   this.miningStuckTicks = 0;
+                  this.recentBrokenOrePositions.put(event.pos.immutable(), System.currentTimeMillis());
+
+                  if (this.mc.level != null) {
+                     net.minecraft.world.phys.AABB searchBox = new net.minecraft.world.phys.AABB(event.pos).inflate(2.0);
+                     for (ItemEntity ie : this.mc.level.getEntitiesOfClass(ItemEntity.class, searchBox)) {
+                        if (ie != null && ie.isAlive() && !ie.getItem().isEmpty()) {
+                           OreDropHelper.registerLearnedDrop(oldBlock, ie.getItem().getItem());
+                        }
+                     }
+                  }
                }
             }
          }
@@ -539,6 +768,20 @@ public class ChunkScanner extends Module {
             }
          }
       }
+
+      // Render Sculk Danger warning zones
+      if (this.renderSculkDanger.get() && this.lastResult != null && !this.lastResult.sculkThreatPositions.isEmpty()) {
+         double r = (double)this.sculkAvoidRadius.get();
+         SettingColor dColor = this.sculkDangerColor.get();
+         Color dSide = new Color(dColor.r, dColor.g, dColor.b, 20);
+         for (BlockPos threatPos : this.lastResult.sculkThreatPositions) {
+            event.renderer.box(
+               threatPos.getX() - r, threatPos.getY() - r, threatPos.getZ() - r,
+               threatPos.getX() + r + 1, threatPos.getY() + r + 1, threatPos.getZ() + r + 1,
+               dSide, dColor, ShapeMode.Both, 0
+            );
+         }
+      }
    }
 
    public void forceScan() {
@@ -546,11 +789,13 @@ public class ChunkScanner extends Module {
       ChunkPos currentPos = this.mc.player.chunkPosition();
       int radius = this.scanRadius.get();
       BlockPos playerPos = this.mc.player.blockPosition();
+      boolean avoidSculk = this.avoidSculkThreats.get();
+      int sculkRadius = this.sculkAvoidRadius.get();
 
       if (radius <= 0) {
          LevelChunk chunk = this.mc.level.getChunkSource().getChunk(currentPos.x, currentPos.z, false);
          if (chunk != null) {
-            this.lastResult = ChunkScannerEngine.scanChunk(chunk, playerPos, this.scanMode.get(), this.customBlocks.get());
+            this.lastResult = ChunkScannerEngine.scanChunk(chunk, playerPos, this.scanMode.get(), this.customBlocks.get(), avoidSculk, sculkRadius);
          }
       } else {
          List<ChunkScanResult> results = new ArrayList<>();
@@ -558,7 +803,7 @@ public class ChunkScanner extends Module {
             for (int dz = -radius; dz <= radius; dz++) {
                LevelChunk chunk = this.mc.level.getChunkSource().getChunk(currentPos.x + dx, currentPos.z + dz, false);
                if (chunk != null) {
-                  ChunkScanResult r = ChunkScannerEngine.scanChunk(chunk, playerPos, this.scanMode.get(), this.customBlocks.get());
+                  ChunkScanResult r = ChunkScannerEngine.scanChunk(chunk, playerPos, this.scanMode.get(), this.customBlocks.get(), avoidSculk, sculkRadius);
                   if (r != null) {
                      results.add(r);
                   }

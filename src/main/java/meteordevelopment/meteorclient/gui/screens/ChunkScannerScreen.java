@@ -77,8 +77,10 @@ public class ChunkScannerScreen extends WindowScreen {
       int minZ = cPos.getMinBlockZ();
       int maxZ = cPos.getMaxBlockZ();
 
-      // 1. Overview Dashboard Header
+      // 1. Overview Dashboard Header (Multi-row compact layout)
       WTable dashboard = this.add(this.theme.table()).expandX().widget();
+
+      // Row 1: Chunk Position & Biome
       dashboard.add(this.theme.label(String.format("Chunk [%d, %d] (X: %d..%d | Z: %d..%d)", cPos.x, cPos.z, minX, maxX, minZ, maxZ))).expandCellX();
       dashboard.add(this.theme.label("Biome: " + result.biomeName)).right();
       dashboard.row();
@@ -90,25 +92,32 @@ public class ChunkScannerScreen extends WindowScreen {
          if (e.minY < minChunkY) minChunkY = e.minY;
          if (e.maxY > maxChunkY) maxChunkY = e.maxY;
       }
-      String spanText = (minChunkY != Integer.MAX_VALUE) ? String.format("Depth: Y: %d .. %d", minChunkY, maxChunkY) : "Depth: N/A";
+      String spanText = (minChunkY != Integer.MAX_VALUE) ? String.format("Depth: Y: %d..%d", minChunkY, maxChunkY) : "Depth: N/A";
       int distToSurf = SurfaceEscapeEngine.getDistanceToSurface(62);
-      String surfInfo = distToSurf > 0 ? String.format(" | Surface: %dm above", distToSurf) : " | Surface: Reached";
+      String surfInfo = distToSurf > 0 ? String.format("Surface: %dm above", distToSurf) : "Surface: Reached";
 
-      String statsText;
+      // Row 2: Totals Breakdown & Depth Info
+      String totalBreakdown;
       if (result.totalCustom > 0 && result.totalOres > 0) {
-         statsText = String.format("Total: %d blocks (%d ores, %d custom | %d types) | %s | Player Y: %d%s",
-            result.totalBlocks, result.totalOres, result.totalCustom, uniqueCount, spanText, pPos != null ? pPos.getY() : 0, surfInfo);
+         totalBreakdown = String.format("Total: %d blocks (%d ores, %d custom) in %d types", result.totalBlocks, result.totalOres, result.totalCustom, uniqueCount);
       } else if (result.totalCustom > 0) {
-         statsText = String.format("Total: %d custom blocks (%d types) | %s | Player Y: %d%s",
-            result.totalBlocks, uniqueCount, spanText, pPos != null ? pPos.getY() : 0, surfInfo);
+         totalBreakdown = String.format("Total: %d custom blocks in %d types", result.totalBlocks, uniqueCount);
       } else {
-         statsText = String.format("Total Ores: %d (%d types) | %s | Player Y: %d%s",
-            result.totalOres, uniqueCount, spanText, pPos != null ? pPos.getY() : 0, surfInfo);
+         totalBreakdown = String.format("Total: %d ores in %d types", result.totalOres, uniqueCount);
       }
-      dashboard.add(this.theme.label(statsText)).expandCellX();
+      dashboard.add(this.theme.label(totalBreakdown)).expandCellX();
+      dashboard.add(this.theme.label(String.format("%s (Player: Y: %d)", spanText, pPos != null ? pPos.getY() : 0))).right();
+      dashboard.row();
+
+      // Row 3: Surface Distance & Safety / Mining Status
+      dashboard.add(this.theme.label(surfInfo)).expandCellX();
 
       if (this.module.isMining()) {
-         dashboard.add(this.theme.label("(highlight)Mining in progress...(default)")).right();
+         String status = this.module.isCollectingDrops() ? "(highlight)Collecting nearby drops...(default)" : "(highlight)Mining in progress...(default)";
+         dashboard.add(this.theme.label(status)).right();
+      } else if (result.dangerExcludedOresCount > 0 || !result.sculkThreatPositions.isEmpty()) {
+         dashboard.add(this.theme.label(String.format("(highlight)🛡 Sculk Safe: %d threat(s) (%d excluded)(default)",
+            result.sculkThreatPositions.size(), result.dangerExcludedOresCount))).right();
       }
       dashboard.row();
 
@@ -121,24 +130,19 @@ public class ChunkScannerScreen extends WindowScreen {
          WSection radarSection = this.add(this.theme.section(spotlightTitle)).expandX().widget();
          WTable radarTable = radarSection.add(this.theme.table()).expandX().widget();
 
-         // Row 1: Item icon + Name + Mod tag
+         // Row 1: Item icon + Name + Distance Badge
          String badge = closest.isCustomTarget ? "(highlight)[Target](default) " : "";
-         String closestName = String.format("%s%s [%s]", badge, closest.displayName, closest.modName);
+         String modSuffix = closest.modName.equalsIgnoreCase("minecraft") ? "" : String.format(" [%s]", closest.modName);
+         String closestName = String.format("%s%s%s", badge, closest.displayName, modSuffix);
          radarTable.add(this.theme.itemWithLabel(closest.icon, closestName)).expandCellX();
-
-         // Distance Badge
-         radarTable.add(this.theme.label(String.format("(highlight)%s away(default)", closest.getDistanceString(pPos)))).right();
+         radarTable.add(this.theme.label(String.format("(highlight)%s away (%s)(default)", closest.getDistanceString(pPos), closest.getBearingString(pPos)))).right();
          radarTable.row();
 
-         // Row 2: Relative bearing + 3D delta offsets + exact position
-         String bearing = closest.getBearingString(pPos);
-         String delta = closest.getDeltaString(pPos);
+         // Row 2: Relative Coordinates & Action Buttons
          BlockPos bPos = closest.nearestPos != null ? closest.nearestPos : pPos;
-         String coords = String.format("Coords: [%d, %d, %d] | Bearing: %s | %s",
-            bPos.getX(), bPos.getY(), bPos.getZ(), bearing, delta);
+         String coords = String.format("Coords: [%d, %d, %d] | %s", bPos.getX(), bPos.getY(), bPos.getZ(), closest.getDeltaString(pPos));
          radarTable.add(this.theme.label(coords)).expandCellX();
 
-         // Radar Actions
          WTable radarActions = radarTable.add(this.theme.table()).right().widget();
          if (BaritoneAPI.getProvider() != null) {
             List<Block> targets = this.module.getAutoBundleVariants()
@@ -168,17 +172,17 @@ public class ChunkScannerScreen extends WindowScreen {
          this.add(this.theme.horizontalSeparator()).expandX();
       }
 
-      // 3. Search & Sort Toolbar + Actions
-      WTable toolbar = this.add(this.theme.table()).expandX().widget();
+      // 3. Toolbar Row 1: Search & Filters
+      WTable toolbarFilters = this.add(this.theme.table()).expandX().widget();
 
-      this.searchBox = toolbar.add(this.theme.textBox(this.filterText, "Search block or @mod...")).minWidth(180.0).expandX().widget();
+      this.searchBox = toolbarFilters.add(this.theme.textBox(this.filterText, "Search block or @mod...")).minWidth(120.0).expandX().widget();
       this.searchBox.action = () -> {
          this.filterText = this.searchBox.get().trim();
          this.table.clear();
          this.fillTable(result);
       };
 
-      WButton modeToggleBtn = toolbar.add(this.theme.button("Mode: " + this.module.scanMode.get().title)).widget();
+      WButton modeToggleBtn = toolbarFilters.add(this.theme.button("Mode: " + this.module.scanMode.get().title)).widget();
       modeToggleBtn.action = () -> {
          this.module.scanMode.set(this.module.scanMode.get().next());
          modeToggleBtn.set("Mode: " + this.module.scanMode.get().title);
@@ -193,7 +197,7 @@ public class ChunkScannerScreen extends WindowScreen {
          case 3 -> "Radius: 7x7";
          default -> "Radius: 1x1";
       };
-      WButton radiusToggleBtn = toolbar.add(this.theme.button(radTitle)).widget();
+      WButton radiusToggleBtn = toolbarFilters.add(this.theme.button(radTitle)).widget();
       radiusToggleBtn.action = () -> {
          int next = (this.module.scanRadius.get() + 1) % 4;
          this.module.scanRadius.set(next);
@@ -202,12 +206,7 @@ public class ChunkScannerScreen extends WindowScreen {
          this.initWidgets();
       };
 
-      WButton targetsBtn = toolbar.add(this.theme.button("Targets (" + this.module.customBlocks.get().size() + ")")).widget();
-      targetsBtn.action = () -> {
-         Minecraft.getInstance().setScreen(new BlockListSettingScreen(this.theme, this.module.customBlocks));
-      };
-
-      WButton sortToggleBtn = toolbar.add(this.theme.button("Sort: " + this.sortMode.title)).widget();
+      WButton sortToggleBtn = toolbarFilters.add(this.theme.button("Sort: " + this.sortMode.title)).widget();
       sortToggleBtn.action = () -> {
          this.sortMode = this.sortMode.next();
          sortToggleBtn.set("Sort: " + this.sortMode.title);
@@ -215,47 +214,57 @@ public class ChunkScannerScreen extends WindowScreen {
          this.fillTable(result);
       };
 
+      WButton targetsBtn = toolbarFilters.add(this.theme.button("Targets (" + this.module.customBlocks.get().size() + ")")).widget();
+      targetsBtn.action = () -> {
+         Minecraft.getInstance().setScreen(new BlockListSettingScreen(this.theme, this.module.customBlocks));
+      };
+
+      toolbarFilters.row();
+
+      // 4. Toolbar Row 2: Actions & Operations
+      WTable toolbarActions = this.add(this.theme.table()).expandX().widget();
+
       if (this.module.isMining()) {
-         WButton stopBtn = toolbar.add(this.theme.button("Stop Mining")).widget();
+         WButton stopBtn = toolbarActions.add(this.theme.button("Stop Mining")).widget();
          stopBtn.action = () -> {
             this.module.stopMining();
             this.clear();
             this.initWidgets();
          };
       } else if (BaritoneAPI.getProvider() != null) {
-         WButton mineAllBtn = toolbar.add(this.theme.button("Mine All")).widget();
+         WButton mineAllBtn = toolbarActions.add(this.theme.button("Mine All")).widget();
          mineAllBtn.action = () -> {
             this.module.startSequentialMining(result.entries);
             this.onClose();
          };
 
          String surfBtnText = distToSurf > 0 ? String.format("Goto Surface (%dm)", distToSurf) : "Goto Surface";
-         WButton surfBtn = toolbar.add(this.theme.button(surfBtnText)).widget();
+         WButton surfBtn = toolbarActions.add(this.theme.button(surfBtnText)).widget();
          surfBtn.action = () -> {
             this.module.gotoSurface();
             this.onClose();
          };
       }
 
-      WButton rescanBtn = toolbar.add(this.theme.button("Rescan")).widget();
+      WButton rescanBtn = toolbarActions.add(this.theme.button("Rescan")).widget();
       rescanBtn.action = () -> {
          this.module.forceScan();
          this.clear();
          this.initWidgets();
       };
 
-      toolbar.row();
+      toolbarActions.row();
       this.add(this.theme.horizontalSeparator()).expandX();
 
-      // 4. Detailed Data Table
+      // 5. Detailed Data Table
       this.table = this.add(this.theme.table()).expandX().widget();
       this.fillTable(result);
    }
 
    private void fillTable(ChunkScanResult result) {
-      this.table.add(this.theme.label("Target Block / Mod")).expandCellX();
+      this.table.add(this.theme.label("Target Block")).expandCellX();
       this.table.add(this.theme.label("Count")).right();
-      this.table.add(this.theme.label("Nearest (Distance & Bearing)")).right();
+      this.table.add(this.theme.label("Nearest")).right();
       this.table.add(this.theme.label("Depth")).right();
       this.table.add(this.theme.label("Actions")).right();
       this.table.row();
@@ -292,21 +301,25 @@ public class ChunkScannerScreen extends WindowScreen {
       }
 
       for (DiscoveredBlockEntry entry : list) {
-         String typeBadge = entry.isCustomTarget ? "(highlight)[Target](default) " : "";
-         String nameWithMod = String.format("%s%s [%s]", typeBadge, entry.displayName, entry.modName);
+         String typeBadge = entry.isCustomTarget ? "(highlight)[T](default) " : "";
+         String modTag = entry.modName.equalsIgnoreCase("minecraft") ? "" : String.format(" [%s]", entry.modName);
+         String nameWithMod = String.format("%s%s%s", typeBadge, entry.displayName, modTag);
          WWidget itemLabel = this.theme.itemWithLabel(entry.icon, nameWithMod);
          this.table.add(itemLabel).expandCellX();
 
-         // Count + Percentage of chunk targets
+         // Count + Percentage
          int totalCount = result.totalBlocks > 0 ? result.totalBlocks : result.totalOres;
          double pct = totalCount > 0 ? (entry.count * 100.0 / totalCount) : 0.0;
          String countStr = String.format("x%d (%.0f%%)", entry.count, pct);
+         if (entry.hasDangerPositions()) {
+            countStr += String.format(" (⚠%d)", entry.getDangerCount());
+         }
          this.table.add(this.theme.label(countStr)).right();
 
-         // Distance & Bearing info
+         // Nearest info
          String distStr = entry.getDistanceString(pPos);
          String bearingStr = entry.getBearingString(pPos);
-         String nearInfo = String.format("%s (%s)", distStr, bearingStr);
+         String nearInfo = String.format("%s %s", distStr, bearingStr);
          this.table.add(this.theme.label(nearInfo)).right();
 
          // Depth

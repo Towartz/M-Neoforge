@@ -1,6 +1,7 @@
 package meteordevelopment.meteorclient.gui.renderer;
 
 import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
@@ -68,15 +69,7 @@ public class GuiRenderer {
 
    public void begin(GuiGraphics drawContext) {
       this.drawContext = drawContext;
-      GL.saveState();
       GL.enableBlend();
-      GlStateManager._blendEquation(GL14.GL_FUNC_ADD);
-      GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
-      GlStateManager._disableDepthTest();
-      GlStateManager._depthMask(true);
-      GlStateManager._colorMask(true, true, true, true);
-      GlStateManager._disableCull();
-      GL.resetTextureSlot();
       GL.enableScissorTest();
       this.scissorStart(0.0, 0.0, (double)Utils.getWindowWidth(), (double)Utils.getWindowHeight());
    }
@@ -90,12 +83,6 @@ public class GuiRenderer {
 
       this.postTasks.clear();
       GL.disableScissorTest();
-      GL.useProgram(0);
-      GL.bindVertexArray(0);
-      GL.bindTexture(0);
-      GL.resetTextureSlot();
-      com.mojang.blaze3d.vertex.BufferUploader.reset();
-      GL.restoreState();
    }
 
    public void beginRender() {
@@ -128,10 +115,6 @@ public class GuiRenderer {
 
       this.theme.textRenderer().end(this.drawContext.pose());
       this.texts.clear();
-      GL.bindTexture(0);
-      GL.useProgram(0);
-      GL.bindVertexArray(0);
-      com.mojang.blaze3d.vertex.BufferUploader.reset();
    }
 
    public void scissorStart(double x, double y, double width, double height) {

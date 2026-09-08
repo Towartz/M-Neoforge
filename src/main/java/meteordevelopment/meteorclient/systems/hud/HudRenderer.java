@@ -3,6 +3,8 @@ package meteordevelopment.meteorclient.systems.hud;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -66,7 +68,7 @@ public class HudRenderer {
    }
 
    public void end() {
-      Renderer2D.COLOR.render(new PoseStack());
+      Renderer2D.COLOR.render(this.drawContext != null ? this.drawContext.pose() : new PoseStack());
       if (this.hud.hasCustomFont()) {
          Iterator<HudRenderer.FontHolder> it = this.fontsInUse.values().iterator();
 
@@ -93,10 +95,6 @@ public class HudRenderer {
 
       this.postTasks.clear();
       this.drawContext = null;
-      GL.useProgram(0);
-      GL.bindVertexArray(0);
-      GL.bindTexture(0);
-      com.mojang.blaze3d.vertex.BufferUploader.reset();
    }
 
    public void line(double x1, double y1, double x2, double y2, Color color) {

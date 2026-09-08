@@ -7,6 +7,7 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.system.MemoryUtil;
@@ -31,6 +32,7 @@ public class Mesh {
    private double cameraX;
    private double cameraZ;
    private boolean beganRendering;
+   private PoseStack currentMatrices;
 
    public Mesh(DrawMode drawMode, Mesh.Attrib... attributes) {
       int stride = 0;
@@ -62,7 +64,6 @@ public class Mesh {
 
       GL.bindVertexArray(0);
       GL.bindVertexBuffer(0);
-      GL.bindIndexBuffer(0);
    }
 
    public void destroy() {
@@ -200,7 +201,6 @@ public class Mesh {
             GL.bindIndexBuffer(this.ibo);
             GL.bufferData(34963, this.indices.limit(this.indicesCount * 4), 35048);
             GL.bindVertexArray(0);
-            GL.bindIndexBuffer(0);
          }
 
          this.building = false;
@@ -208,6 +208,7 @@ public class Mesh {
    }
 
    public void beginRender(PoseStack matrices) {
+      this.currentMatrices = matrices;
       GL.saveState();
       if (this.depthTest) {
          GL.enableDepth();
@@ -264,6 +265,7 @@ public class Mesh {
       }
 
       GL.restoreState();
+      this.currentMatrices = null;
       this.beganRendering = false;
    }
 
