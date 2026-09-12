@@ -68,7 +68,7 @@ jobs:
           sha256sum *.jar > SHA256SUMS.txt
           md5sum *.jar > MD5SUMS.txt
           cat SHA256SUMS.txt
-          JAR_NAME=$(ls meteor-client-neoforge-*.jar | head -n 1)
+          JAR_NAME=$(ls utility-neoforge-*.jar *.jar 2>/dev/null | head -n 1)
           JAR_SIZE=$(stat -c %s "$JAR_NAME")
           JAR_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $JAR_SIZE/1048576}")
           JAR_SHA256=$(sha256sum "$JAR_NAME" | awk '{print $1}')
@@ -78,7 +78,7 @@ jobs:
 
       - name: Write GitHub Step Summary
         run: |
-          echo "### 🚀 Meteor Client NeoForge Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Utility+ NeoForge Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
@@ -92,7 +92,7 @@ jobs:
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: meteor-client-neoforge-1.21.1
+          name: utility-neoforge-1.21.1
           path: |
             dist/*.jar
             dist/*.txt
@@ -113,14 +113,16 @@ jobs:
           else
             RELEASE_TAG="v0.5.8"
           fi
-          RELEASE_TITLE="Meteor Client NeoForge 1.21.1 ($RELEASE_TAG)"
+          RELEASE_TITLE="Utility+ NeoForge 1.21.1 ($RELEASE_TAG)"
 
           echo "Target Release Tag: $RELEASE_TAG"
 
-          echo "### 🚀 Meteor Client NeoForge 1.21.1" > release_notes.md
+          echo "### 🚀 Utility+ NeoForge 1.21.1" > release_notes.md
           echo "- **NeoForge Version**: \`21.1.249\`" >> release_notes.md
           echo "- **Minecraft Version**: \`1.21.1\`" >> release_notes.md
-          echo "- **Baritone Version**: \`1.11.3\` (Upgraded with modular classloader fix)" >> release_notes.md
+          echo "- **Baritone Version**: \`1.11.3\`" >> release_notes.md
+          echo "- **Model Context Protocol (MCP)**: Embedded JSON-RPC Server & 30 Tools" >> release_notes.md
+          echo "- **AutoCraft**: Multi-step recursive crafting & container search engine" >> release_notes.md
           echo "" >> release_notes.md
           echo "#### 📦 Artifacts:" >> release_notes.md
           echo "- **File**: \`$JAR_NAME\` (\`$JAR_SIZE MB\`)" >> release_notes.md
