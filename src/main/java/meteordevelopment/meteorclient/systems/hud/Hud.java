@@ -45,7 +45,7 @@ import net.minecraft.nbt.Tag;
 import org.jetbrains.annotations.NotNull;
 
 public class Hud extends System<Hud> implements Iterable<HudElement> {
-   public static final HudGroup GROUP = new HudGroup("Meteor");
+   public static final HudGroup GROUP = new HudGroup("Utility+");
    public boolean active = true;
    public Settings settings = new Settings();
    public final Map<String, HudElementInfo<?>> infos = new TreeMap<>();

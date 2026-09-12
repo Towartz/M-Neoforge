@@ -10,6 +10,7 @@ import meteordevelopment.meteorclient.systems.modules.movement.Sprint;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFlightModes;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.modes.Bounce;
+import meteordevelopment.meteorclient.systems.modules.player.NoStatusEffects;
 import meteordevelopment.meteorclient.systems.modules.player.OffhandCrash;
 import meteordevelopment.meteorclient.systems.modules.player.PotionSpoof;
 import meteordevelopment.meteorclient.systems.modules.render.HandView;
@@ -20,6 +21,8 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -67,6 +70,71 @@ public abstract class LivingEntityMixin extends Entity {
          CanWalkOnFluidEvent event = MeteorClient.EVENT_BUS.post(CanWalkOnFluidEvent.get(fluidState));
          return event.walkOnFluid;
       }
+   }
+
+   @Unique
+   private static NoStatusEffects meteor$cachedNoStatusEffects;
+   @Unique
+   private static NoRender meteor$cachedNoRender;
+
+   @ModifyReturnValue(
+      method = {"hasEffect"},
+      at = {@At("RETURN")}
+   )
+   private boolean onHasEffect(boolean original, Holder<MobEffect> effect) {
+      if ((Object)this != MeteorClient.mc.player || effect == null || effect.value() == null) {
+         return original;
+      }
+      NoStatusEffects module = meteor$cachedNoStatusEffects;
+      if (module == null && Modules.get() != null) {
+         meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
+      }
+      if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
+         return false;
+      }
+      NoRender noRender = meteor$cachedNoRender;
+      if (noRender == null && Modules.get() != null) {
+         meteor$cachedNoRender = noRender = Modules.get().get(NoRender.class);
+      }
+      if (noRender != null && noRender.isActive()) {
+         if (effect.is(MobEffects.BLINDNESS) && noRender.noBlindness()) {
+            return false;
+         }
+         if (effect.is(MobEffects.DARKNESS) && noRender.noDarkness()) {
+            return false;
+         }
+      }
+      return original;
+   }
+
+   @ModifyReturnValue(
+      method = {"getEffect"},
+      at = {@At("RETURN")}
+   )
+   private MobEffectInstance onGetEffect(MobEffectInstance original, Holder<MobEffect> effect) {
+      if ((Object)this != MeteorClient.mc.player || effect == null || effect.value() == null) {
+         return original;
+      }
+      NoStatusEffects module = meteor$cachedNoStatusEffects;
+      if (module == null && Modules.get() != null) {
+         meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
+      }
+      if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
+         return null;
+      }
+      NoRender noRender = meteor$cachedNoRender;
+      if (noRender == null && Modules.get() != null) {
+         meteor$cachedNoRender = noRender = Modules.get().get(NoRender.class);
+      }
+      if (noRender != null && noRender.isActive()) {
+         if (effect.is(MobEffects.BLINDNESS) && noRender.noBlindness()) {
+            return null;
+         }
+         if (effect.is(MobEffects.DARKNESS) && noRender.noDarkness()) {
+            return null;
+         }
+      }
+      return original;
    }
 
    @Inject(

@@ -22,6 +22,8 @@ import meteordevelopment.meteorclient.gui.themes.meteor.widgets.input.WMeteorSli
 import meteordevelopment.meteorclient.gui.themes.meteor.widgets.input.WMeteorTextBox;
 import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorButton;
 import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorCheckbox;
+import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorConfirmedButton;
+import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorConfirmedMinus;
 import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorFavorite;
 import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorMinus;
 import meteordevelopment.meteorclient.gui.themes.meteor.widgets.pressable.WMeteorPlus;
@@ -44,6 +46,8 @@ import meteordevelopment.meteorclient.gui.widgets.input.WSlider;
 import meteordevelopment.meteorclient.gui.widgets.input.WTextBox;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WCheckbox;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WConfirmedButton;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WConfirmedMinus;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WFavorite;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WMinus;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WPlus;
@@ -102,8 +106,8 @@ public class MeteorGuiTheme extends GuiTheme {
             MeteorClient.mc.options.hideGui = v;
          }
       }).build());
-   public final Setting<SettingColor> accentColor = this.color("accent", "Main color of the GUI.", new SettingColor(145, 61, 226));
-   public final Setting<SettingColor> checkboxColor = this.color("checkbox", "Color of checkbox.", new SettingColor(145, 61, 226));
+   public final Setting<SettingColor> accentColor = this.color("accent", "Main color of the GUI.", new SettingColor(255, 42, 85));
+   public final Setting<SettingColor> checkboxColor = this.color("checkbox", "Color of checkbox.", new SettingColor(255, 42, 85));
    public final Setting<SettingColor> plusColor = this.color("plus", "Color of plus button.", new SettingColor(50, 255, 50));
    public final Setting<SettingColor> minusColor = this.color("minus", "Color of minus button.", new SettingColor(255, 50, 50));
    public final Setting<SettingColor> favoriteColor = this.color("favorite", "Color of checked favorite button.", new SettingColor(250, 215, 0));
@@ -141,24 +145,24 @@ public class MeteorGuiTheme extends GuiTheme {
       this.sgScrollbar, "Scrollbar", new SettingColor(30, 30, 30, 200), new SettingColor(40, 40, 40, 200), new SettingColor(50, 50, 50, 200)
    );
    public final MeteorGuiTheme.ThreeStateColorSetting sliderHandle = new MeteorGuiTheme.ThreeStateColorSetting(
-      this.sgSlider, "slider-handle", new SettingColor(130, 0, 255), new SettingColor(140, 30, 255), new SettingColor(150, 60, 255)
+      this.sgSlider, "slider-handle", new SettingColor(230, 30, 75), new SettingColor(255, 45, 90), new SettingColor(255, 75, 115)
    );
-   public final Setting<SettingColor> sliderLeft = this.color(this.sgSlider, "slider-left", "Color of slider left part.", new SettingColor(100, 35, 170));
+   public final Setting<SettingColor> sliderLeft = this.color(this.sgSlider, "slider-left", "Color of slider left part.", new SettingColor(170, 25, 55));
    public final Setting<SettingColor> sliderRight = this.color(this.sgSlider, "slider-right", "Color of slider right part.", new SettingColor(50, 50, 50));
    private final Setting<SettingColor> starscriptText = this.color(
       this.sgStarscript, "starscript-text", "Color of text in Starscript code.", new SettingColor(169, 183, 198)
    );
    private final Setting<SettingColor> starscriptBraces = this.color(
-      this.sgStarscript, "starscript-braces", "Color of braces in Starscript code.", new SettingColor(150, 150, 150)
+      this.sgStarscript, "starscript-braces", "Color of braces in Starscript code.", new SettingColor(152, 118, 170)
    );
    private final Setting<SettingColor> starscriptParenthesis = this.color(
       this.sgStarscript, "starscript-parenthesis", "Color of parenthesis in Starscript code.", new SettingColor(169, 183, 198)
    );
    private final Setting<SettingColor> starscriptDots = this.color(
-      this.sgStarscript, "starscript-dots", "Color of dots in starscript code.", new SettingColor(169, 183, 198)
+      this.sgStarscript, "starscript-dots", "Color of dots in Starscript code.", new SettingColor(169, 183, 198)
    );
    private final Setting<SettingColor> starscriptCommas = this.color(
-      this.sgStarscript, "starscript-commas", "Color of commas in starscript code.", new SettingColor(169, 183, 198)
+      this.sgStarscript, "starscript-commas", "Color of commas in Starscript code.", new SettingColor(169, 183, 198)
    );
    private final Setting<SettingColor> starscriptOperators = this.color(
       this.sgStarscript, "starscript-operators", "Color of operators in Starscript code.", new SettingColor(169, 183, 198)
@@ -167,7 +171,7 @@ public class MeteorGuiTheme extends GuiTheme {
       this.sgStarscript, "starscript-strings", "Color of strings in Starscript code.", new SettingColor(106, 135, 89)
    );
    private final Setting<SettingColor> starscriptNumbers = this.color(
-      this.sgStarscript, "starscript-numbers", "Color of numbers in Starscript code.", new SettingColor(104, 141, 187)
+      this.sgStarscript, "starscript-numbers", "Color of numbers in Starscript code.", new SettingColor(104, 151, 187)
    );
    private final Setting<SettingColor> starscriptKeywords = this.color(
       this.sgStarscript, "starscript-keywords", "Color of keywords in Starscript code.", new SettingColor(204, 120, 50)
@@ -177,7 +181,7 @@ public class MeteorGuiTheme extends GuiTheme {
    );
 
    public MeteorGuiTheme() {
-      super("Meteor");
+      super("Utility+");
       this.settingsFactory = new DefaultSettingsWidgetFactory(this);
    }
 
@@ -215,8 +219,18 @@ public class MeteorGuiTheme extends GuiTheme {
    }
 
    @Override
+   public WConfirmedButton confirmedButton(String text, String confirmText, GuiTexture texture) {
+      return this.w(new WMeteorConfirmedButton(text, confirmText, texture));
+   }
+
+   @Override
    public WMinus minus() {
       return this.w(new WMeteorMinus());
+   }
+
+   @Override
+   public WConfirmedMinus confirmedMinus() {
+      return this.w(new WMeteorConfirmedMinus());
    }
 
    @Override

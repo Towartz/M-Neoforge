@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.commands.commands.BindCommand;
 import meteordevelopment.meteorclient.commands.commands.BindsCommand;
 import meteordevelopment.meteorclient.commands.commands.CommandsCommand;
+import meteordevelopment.meteorclient.commands.commands.CraftCommand;
 import meteordevelopment.meteorclient.commands.commands.DamageCommand;
 import meteordevelopment.meteorclient.commands.commands.DisconnectCommand;
 import meteordevelopment.meteorclient.commands.commands.DismountCommand;
@@ -21,6 +22,7 @@ import meteordevelopment.meteorclient.commands.commands.FriendsCommand;
 import meteordevelopment.meteorclient.commands.commands.GamemodeCommand;
 import meteordevelopment.meteorclient.commands.commands.GiveCommand;
 import meteordevelopment.meteorclient.commands.commands.HClipCommand;
+import meteordevelopment.meteorclient.commands.commands.HelpCommand;
 import meteordevelopment.meteorclient.commands.commands.InputCommand;
 import meteordevelopment.meteorclient.commands.commands.InventoryCommand;
 import meteordevelopment.meteorclient.commands.commands.LocateCommand;
@@ -50,7 +52,7 @@ import meteordevelopment.meteorclient.utils.PostInit;
 import net.minecraft.commands.SharedSuggestionProvider;
 
 public class Commands {
-   public static final CommandDispatcher<SharedSuggestionProvider> DISPATCHER = new CommandDispatcher();
+   public static CommandDispatcher<SharedSuggestionProvider> DISPATCHER = new CommandDispatcher();
    public static final List<Command> COMMANDS = new ArrayList<>();
 
    @PostInit(
@@ -59,6 +61,7 @@ public class Commands {
    public static void init() {
       add(new VClipCommand());
       add(new HClipCommand());
+      add(new HelpCommand());
       add(new DismountCommand());
       add(new DisconnectCommand());
       add(new DamageCommand());
@@ -96,11 +99,21 @@ public class Commands {
       add(new WaspCommand());
       add(new LocateCommand());
       add(new SurfaceCommand());
+      add(new CraftCommand());
       COMMANDS.sort(Comparator.comparing(Command::getName));
    }
 
    public static void add(Command command) {
-      COMMANDS.removeIf(existing -> existing.getName().equals(command.getName()));
+      COMMANDS.removeIf(existing -> {
+         if (existing.getName().equals(command.getName())) {
+            try {
+               MeteorClient.EVENT_BUS.unsubscribe(existing);
+            } catch (Throwable ignored) {
+            }
+            return true;
+         }
+         return false;
+      });
       command.registerTo(DISPATCHER);
       COMMANDS.add(command);
    }

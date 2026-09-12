@@ -17,7 +17,7 @@ public class MeteorExecutor {
       executor = Executors.newCachedThreadPool(task -> {
          Thread thread = new Thread(task);
          thread.setDaemon(true);
-         thread.setName("Meteor-Executor-" + threadNumber.getAndIncrement());
+         thread.setName("Utility-Executor-" + threadNumber.getAndIncrement());
          return thread;
       });
    }

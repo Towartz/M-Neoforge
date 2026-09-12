@@ -22,7 +22,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class MeteorToast implements Toast {
-   public static final int TITLE_COLOR = Color.fromRGBA(145, 61, 226, 255);
+   public static final int TITLE_COLOR = Color.fromRGBA(255, 42, 85, 255);
    public static final int TEXT_COLOR = Color.fromRGBA(220, 220, 220, 255);
    private static final ResourceLocation TEXTURE = ResourceLocation.parse("textures/gui/sprites/toast/advancement.png");
    private ItemStack icon;

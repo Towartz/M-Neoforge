@@ -186,7 +186,7 @@ public class BaritonePathManager implements IPathManager {
       }
 
       public String displayName0() {
-         return "Meteor Client";
+         return meteordevelopment.meteorclient.MeteorClient.NAME;
       }
    }
 

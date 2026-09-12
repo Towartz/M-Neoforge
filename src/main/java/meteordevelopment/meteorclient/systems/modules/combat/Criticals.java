@@ -104,6 +104,8 @@ public class Criticals extends Module {
    private boolean sendPackets;
    private int sendTimer;
    private boolean wasSprinting;
+   private double lastY;
+   private boolean waitingForPeak;
 
    public Criticals() {
       super(Categories.Combat, "criticals", "Performs critical attacks when you hit your target.");
@@ -116,6 +118,19 @@ public class Criticals extends Module {
       this.sendPackets = false;
       this.sendTimer = 0;
       this.wasSprinting = false;
+      this.lastY = 0.0;
+      this.waitingForPeak = false;
+   }
+
+   @Override
+   public void onDeactivate() {
+      this.attackPacket = null;
+      this.swingPacket = null;
+      this.sendPackets = false;
+      this.sendTimer = 0;
+      this.wasSprinting = false;
+      this.lastY = 0.0;
+      this.waitingForPeak = false;
    }
 
    @EventHandler
@@ -157,6 +172,17 @@ public class Criticals extends Module {
                this.sendPacket(0.0, false);
                if (this.resetGround.get()) this.sendPacket(0.0, true);
                break;
+            case UpdatedNCP:
+               this.sendPacket(8.0E-7, false);
+               this.sendPacket(0.0, false);
+               if (this.resetGround.get()) this.sendPacket(0.0, true);
+               break;
+            case OldNCP:
+               this.sendPacket(0.11, false);
+               this.sendPacket(0.1100013579, false);
+               this.sendPacket(1.3579E-6, false);
+               if (this.resetGround.get()) this.sendPacket(0.0, true);
+               break;
             case Bypass:
                // Updated NCP / Strict 4-packet micro-offset sequence
                this.sendPacket(0.0625101, false);
@@ -181,12 +207,15 @@ public class Criticals extends Module {
             case MiniJump:
                if (!this.sendPackets) {
                   this.sendPackets = true;
-                  this.sendTimer = this.mode.get() == Criticals.Mode.Jump ? 12 : 8;
                   this.attackPacket = (ServerboundInteractPacket)event.packet;
                   if (this.mode.get() == Criticals.Mode.Jump) {
                      this.mc.player.jumpFromGround();
+                     this.waitingForPeak = true;
+                     this.lastY = this.mc.player.getY();
+                     this.sendTimer = 12;
                   } else {
                      ((IVec3d)this.mc.player.getDeltaMovement()).setY(0.25);
+                     this.sendTimer = 4;
                   }
 
                   event.cancel();
@@ -227,6 +256,16 @@ public class Criticals extends Module {
    @EventHandler
    private void onTick(TickEvent.Pre event) {
       if (this.sendPackets) {
+         if (this.mode.get() == Criticals.Mode.Jump && this.waitingForPeak && this.mc.player != null) {
+            double currentY = this.mc.player.getY();
+            if (currentY <= this.lastY) {
+               this.waitingForPeak = false;
+               this.sendTimer = 0;
+            }
+            this.lastY = currentY;
+            return;
+         }
+
          // Dynamic Apex Detection: wait until player is descending / at jump apex
          boolean isFalling = this.mc.player != null && (this.mc.player.getDeltaMovement().y < 0.0 || this.mc.player.fallDistance > 0.0F);
          if (isFalling || this.sendTimer <= 0) {
@@ -286,6 +325,8 @@ public class Criticals extends Module {
    public static enum Mode {
       None,
       Packet,
+      UpdatedNCP,
+      OldNCP,
       Bypass,
       Vulcan,
       NoGround,

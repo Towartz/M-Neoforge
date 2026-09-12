@@ -44,7 +44,7 @@ public class GuiThemes {
       }
 
       if (theme == null) {
-         select("Meteor");
+         select("Utility+");
       }
    }
 
@@ -69,6 +69,15 @@ public class GuiThemes {
          if (t.name.equals(name)) {
             theme = t;
             break;
+         }
+      }
+
+      if (theme == null && "Meteor".equals(name)) {
+         for (GuiTheme t : themes) {
+            if (t.name.equals("Utility+")) {
+               theme = t;
+               break;
+            }
          }
       }
 

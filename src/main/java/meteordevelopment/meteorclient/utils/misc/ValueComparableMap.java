@@ -14,12 +14,28 @@ public class ValueComparableMap<K extends Comparable<K>, V> extends TreeMap<K, V
 
    private ValueComparableMap(Comparator<? super V> partialValueComparator, HashMap<K, V> valueMap) {
       super((k1, k2) -> {
-         int cmp = partialValueComparator.compare(valueMap.get(k1), valueMap.get(k2));
-         return cmp != 0 ? cmp : k1.compareTo((K)k2);
+         if (k1 == null && k2 == null) return 0;
+         if (k1 == null) return -1;
+         if (k2 == null) return 1;
+
+         V v1 = valueMap.get(k1);
+         V v2 = valueMap.get(k2);
+
+         if (v1 != null && v2 != null) {
+            int cmp = partialValueComparator.compare(v1, v2);
+            if (cmp != 0) return cmp;
+         } else if (v1 != null) {
+            return -1;
+         } else if (v2 != null) {
+            return 1;
+         }
+
+         return k1.compareTo((K) k2);
       });
       this.valueMap = valueMap;
    }
 
+   @Override
    public V put(K k, V v) {
       if (this.valueMap.containsKey(k)) {
          this.remove(k);
@@ -36,6 +52,7 @@ public class ValueComparableMap<K extends Comparable<K>, V> extends TreeMap<K, V
 
    @Override
    public V getOrDefault(Object key, V defaultValue) {
-      return this.containsKey(key) ? this.get(key) : defaultValue;
+      V val = this.valueMap.get(key);
+      return val != null ? val : defaultValue;
    }
 }

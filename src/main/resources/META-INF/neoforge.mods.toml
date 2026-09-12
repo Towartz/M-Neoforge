@@ -3,12 +3,12 @@ loaderVersion = "[4,)"
 license = "GPL-3.0"
 
 [[mods]]
-modId = "meteor_client"
+modId = "utility"
 version = "0.5.8"
-displayName = "Meteor Client"
-description = "Based utility mod for Minecraft."
-authors = "MineGame159, squidoodly, seasnail"
-logoFile = "assets/meteor-client/icon.png"
+displayName = "Utility+"
+description = "High-performance utility client for Minecraft."
+authors = "MineGame159, squidoodly, seasnail, Towartz"
+logoFile = "assets/utility/icon.png"
 
 [[mods]]
 modId = "baritoe"
@@ -35,14 +35,14 @@ config = "meteor-client-lithium.mixins.json"
 [[mixins]]
 config = "meteor-client-viafabricplus.mixins.json"
 
-[[dependencies.meteor_client]]
+[[dependencies.utility]]
 modId = "neoforge"
 type = "required"
 versionRange = "[21.1.0,)"
 ordering = "NONE"
 side = "CLIENT"
 
-[[dependencies.meteor_client]]
+[[dependencies.utility]]
 modId = "minecraft"
 type = "required"
 versionRange = "[1.21.1,1.21.2)"

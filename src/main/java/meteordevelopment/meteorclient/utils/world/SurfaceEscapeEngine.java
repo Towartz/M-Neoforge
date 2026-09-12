@@ -19,6 +19,7 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.PickaxeItem;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LadderBlock;
@@ -115,13 +116,97 @@ public class SurfaceEscapeEngine {
       return airBlocks;
    }
 
+   public static class ShaftOpening {
+      public final BlockPos pos;
+      public final int clearance;
+      public final boolean isWaterColumn;
+      public final double horizontalDistance;
+
+      public ShaftOpening(BlockPos pos, int clearance, boolean isWaterColumn, double horizontalDistance) {
+         this.pos = pos;
+         this.clearance = clearance;
+         this.isWaterColumn = isWaterColumn;
+         this.horizontalDistance = horizontalDistance;
+      }
+   }
+
+   public static ShaftOpening findBestVicinityShaft(BlockPos center, int radius) {
+      if (MeteorClient.mc.level == null) return null;
+      ClientLevel level = MeteorClient.mc.level;
+
+      ShaftOpening bestShaft = null;
+      double bestScore = -1.0;
+
+      for (int dx = -radius; dx <= radius; dx++) {
+         for (int dz = -radius; dz <= radius; dz++) {
+            int x = center.getX() + dx;
+            int z = center.getZ() + dz;
+            double hDist = FastMath.hypot(dx, dz);
+
+            int yStart = center.getY();
+            BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos(x, yStart, z);
+
+            BlockState baseState = level.getBlockState(m);
+            boolean isWater = baseState.is(Blocks.WATER);
+            if (!isWater && !isPassableVertical(baseState)) {
+               m.setY(yStart + 1);
+               baseState = level.getBlockState(m);
+               isWater = baseState.is(Blocks.WATER);
+               if (!isWater && !isPassableVertical(baseState)) {
+                  continue;
+               }
+               yStart++;
+            }
+
+            int clearance = 0;
+            int maxBuildHeight = level.getMaxBuildHeight();
+
+            if (isWater) {
+               while (m.getY() < maxBuildHeight && level.getBlockState(m).is(Blocks.WATER)) {
+                  clearance++;
+                  m.move(Direction.UP);
+               }
+            } else {
+               while (m.getY() < maxBuildHeight && isPassableVertical(level.getBlockState(m))) {
+                  clearance++;
+                  m.move(Direction.UP);
+               }
+            }
+
+            if (clearance >= 4) {
+               double score = (isWater ? 50.0 : 20.0) + clearance - (hDist * 3.0);
+               if (score > bestScore) {
+                  bestScore = score;
+                  bestShaft = new ShaftOpening(new BlockPos(x, yStart, z), clearance, isWater, hDist);
+               }
+            }
+         }
+      }
+
+      return bestShaft;
+   }
+
    public static boolean isAlreadyOnSurface(int minSurfaceY) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
       ClientLevel level = MeteorClient.mc.level;
       BlockPos playerPos = MeteorClient.mc.player.blockPosition();
 
+      // Dimension awareness: Nether
+      if (level.dimension() == Level.NETHER) {
+         if (playerPos.getY() >= minSurfaceY && playerPos.getY() <= 100) {
+            BlockPos torso = playerPos.above();
+            BlockPos head = playerPos.above(2);
+            return level.getBlockState(playerPos).isAir()
+               && level.getBlockState(torso).isAir()
+               && level.getBlockState(head).isAir()
+               && level.getBlockState(playerPos.below()).isSolid();
+         }
+         return false;
+      }
+
+      // Targeted navigation arrival check (allowing 1 block tolerance)
       if (currentTargetX != null && currentTargetZ != null) {
-         if (playerPos.getX() == currentTargetX && playerPos.getZ() == currentTargetZ) {
+         if (Math.abs(playerPos.getX() - currentTargetX) <= 1 && Math.abs(playerPos.getZ() - currentTargetZ) <= 1) {
             int surfaceAtXZ = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, currentTargetX, currentTargetZ);
             return playerPos.getY() >= surfaceAtXZ - 1;
          }
@@ -130,36 +215,42 @@ public class SurfaceEscapeEngine {
 
       if (playerPos.getY() < minSurfaceY) return false;
 
-      int maxSurrounding = Integer.MIN_VALUE;
-      for (int dx = -2; dx <= 2; dx++) {
-         for (int dz = -2; dz <= 2; dz++) {
-            if (dx == 0 && dz == 0) continue;
-            int h = level.getHeight(Heightmap.Types.WORLD_SURFACE, playerPos.getX() + dx, playerPos.getZ() + dz);
-            if (h > maxSurrounding) maxSurrounding = h;
+      int surfaceAtPlayer = level.getHeight(Heightmap.Types.WORLD_SURFACE, playerPos.getX(), playerPos.getZ());
+      if (playerPos.getY() >= surfaceAtPlayer - 1) {
+         return true;
+      }
+
+      // Cave mouth, ravine, or low saddle exposed to sky
+      if (level.canSeeSky(playerPos) || level.canSeeSky(playerPos.above())) {
+         BlockPos torsoPos = playerPos.above();
+         int solidSides = 0;
+         if (level.getBlockState(torsoPos.north()).isSolid()) solidSides++;
+         if (level.getBlockState(torsoPos.south()).isSolid()) solidSides++;
+         if (level.getBlockState(torsoPos.east()).isSolid()) solidSides++;
+         if (level.getBlockState(torsoPos.west()).isSolid()) solidSides++;
+
+         // Only consider trapped if >= 3 sides are walled in AND significantly below local surface
+         if (solidSides >= 3 && playerPos.getY() < surfaceAtPlayer - 2) {
+            return false;
          }
+         return true;
       }
 
-      if (playerPos.getY() < maxSurrounding - 1) {
-         return false;
-      }
-
-      BlockPos torsoPos = playerPos.above();
-      int solidSides = 0;
-      if (level.getBlockState(torsoPos.north()).isSolid()) solidSides++;
-      if (level.getBlockState(torsoPos.south()).isSolid()) solidSides++;
-      if (level.getBlockState(torsoPos.east()).isSolid()) solidSides++;
-      if (level.getBlockState(torsoPos.west()).isSolid()) solidSides++;
-
-      if (solidSides >= 3) {
-         return false;
-      }
-
-      return level.canSeeSky(playerPos) || playerPos.getY() >= level.getHeight(Heightmap.Types.WORLD_SURFACE, playerPos.getX(), playerPos.getZ());
+      return false;
    }
 
    public static int getDistanceToSurface(int minSurfaceY) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return 0;
       BlockPos p = MeteorClient.mc.player.blockPosition();
+
+      if (MeteorClient.mc.level.dimension() == Level.NETHER) {
+         if (p.getY() < minSurfaceY) {
+            return minSurfaceY - p.getY();
+         } else if (p.getY() > 95) {
+            return p.getY() - 65;
+         }
+         return 0;
+      }
 
       if (currentTargetX != null && currentTargetZ != null) {
          double dx = p.getX() - currentTargetX;
@@ -243,7 +334,7 @@ public class SurfaceEscapeEngine {
       s.acceptableThrowawayItems.value = throwaways;
    }
 
-   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY) {
+   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY, boolean useSkyLightGradient) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
       if (BaritoneAPI.getProvider() == null) return false;
 
@@ -266,22 +357,25 @@ public class SurfaceEscapeEngine {
 
       baritone.getPathingBehavior().cancelEverything();
 
-      int airAbove = detectVerticalAirShaft(startPos);
+      ShaftOpening shaft = findBestVicinityShaft(startPos, 3);
       int blocksInInv = countThrowawayBlocksInInventory();
 
-      if (airAbove >= 4 && blocksInInv >= 4) {
-         int surfaceAtXZ = MeteorClient.mc.level.getHeight(Heightmap.Types.WORLD_SURFACE, startPos.getX(), startPos.getZ());
-         int targetY = Math.max(minSurfaceY, surfaceAtXZ + 1);
-         Goal goal = new GoalComposite(new GoalXZ(startPos.getX(), startPos.getZ()), new GoalYLevel(targetY));
+      if (shaft != null && shaft.horizontalDistance <= 2.5 && (shaft.isWaterColumn || (allowPlace && blocksInInv >= 4))) {
+         int targetY = shaft.pos.getY() + shaft.clearance;
+         Goal goal = new GoalComposite(new GoalXZ(shaft.pos.getX(), shaft.pos.getZ()), new GoalYLevel(targetY));
          baritone.getCustomGoalProcess().setGoalAndPath(goal);
       } else {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(minSurfaceY));
+         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(minSurfaceY, useSkyLightGradient));
       }
 
       return true;
    }
 
-   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY) {
+   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY) {
+      return startEscape(breakPenalty, allowPlace, minSurfaceY, true);
+   }
+
+   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY, boolean useSkyLightGradient) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
       if (BaritoneAPI.getProvider() == null) return false;
 
@@ -303,11 +397,15 @@ public class SurfaceEscapeEngine {
       currentTargetZ = targetZ;
 
       baritone.getPathingBehavior().cancelEverything();
-      baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(targetX, targetZ, minSurfaceY));
+      baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(targetX, targetZ, minSurfaceY, useSkyLightGradient));
       return true;
    }
 
-   public static void applyEscalationTier(boolean excavationMode, int minSurfaceY) {
+   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY) {
+      return startNavigation(targetX, targetZ, breakPenalty, allowPlace, minSurfaceY, true);
+   }
+
+   public static void applyEscalationTier(boolean excavationMode, int minSurfaceY, boolean useSkyLightGradient) {
       if (!active || BaritoneAPI.getProvider() == null) return;
       IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
       Settings s = BaritoneAPI.getSettings();
@@ -330,10 +428,14 @@ public class SurfaceEscapeEngine {
 
       baritone.getPathingBehavior().cancelEverything();
       if (currentTargetX != null && currentTargetZ != null) {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(currentTargetX, currentTargetZ, minSurfaceY));
+         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(currentTargetX, currentTargetZ, minSurfaceY, useSkyLightGradient));
       } else {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(minSurfaceY));
+         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(minSurfaceY, useSkyLightGradient));
       }
+   }
+
+   public static void applyEscalationTier(boolean excavationMode, int minSurfaceY) {
+      applyEscalationTier(excavationMode, minSurfaceY, true);
    }
 
    private static void addIfMissing(List<Item> list, Block block) {
@@ -348,6 +450,9 @@ public class SurfaceEscapeEngine {
       active = false;
       currentTargetX = null;
       currentTargetZ = null;
+      startPos = null;
+      trackedPickaxe = ItemStack.EMPTY;
+      startPickaxeDamage = 0;
 
       if (BaritoneAPI.getProvider() != null) {
          IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
@@ -371,6 +476,7 @@ public class SurfaceEscapeEngine {
          s.autoTool.value = prevAutoTool;
          if (prevThrowawayItems != null) {
             s.acceptableThrowawayItems.value = prevThrowawayItems;
+            prevThrowawayItems = null;
          }
       }
    }
@@ -416,16 +522,32 @@ public class SurfaceEscapeEngine {
                   int x = startX + dx;
                   int z = startZ + dz;
                   int topY = level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z);
-                  BlockPos checkPos = new BlockPos(x, topY, z);
 
-                  if (level.canSeeSky(checkPos)) {
-                     double hDist = FastMath.hypot((double)(x - playerPos.getX()), (double)(z - playerPos.getZ()));
-                     double score = hDist + (double)(topY - playerPos.getY()) * 1.5;
-                     if (score < minScore) {
-                        minScore = score;
-                        bestPos = checkPos;
-                        bestElevation = topY;
-                     }
+                  // Find lowest sky-exposed opening or valley floor
+                  int openY = topY;
+                  BlockPos.MutableBlockPos checkPos = new BlockPos.MutableBlockPos(x, topY, z);
+
+                  while (openY > 60 && level.canSeeSky(checkPos)) {
+                     openY--;
+                     checkPos.setY(openY);
+                  }
+                  openY++;
+                  checkPos.setY(openY);
+
+                  // Ensure the opening is not in a hazard (lava / magma / fire)
+                  BlockState floorState = level.getBlockState(checkPos.below());
+                  if (floorState.is(Blocks.LAVA) || floorState.is(Blocks.MAGMA_BLOCK) || floorState.is(Blocks.FIRE)) {
+                     continue;
+                  }
+
+                  double hDist = FastMath.hypot((double)(x - playerPos.getX()), (double)(z - playerPos.getZ()));
+                  double verticalDiff = Math.max(0, openY - playerPos.getY());
+                  double score = hDist + verticalDiff * 1.25;
+
+                  if (score < minScore) {
+                     minScore = score;
+                     bestPos = new BlockPos(x, openY, z);
+                     bestElevation = openY;
                   }
                }
             }

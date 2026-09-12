@@ -3,6 +3,7 @@ package meteordevelopment.meteorclient.addons;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ServiceLoader;
+import com.cope.meteormcp.MeteorMCPAddon;
 import meteordevelopment.meteorclient.MeteorClient;
 
 public class AddonManager {
@@ -34,11 +35,17 @@ public class AddonManager {
             return null;
          }
       };
-      MeteorClient.ADDON.name = "Meteor Client";
-      MeteorClient.ADDON.authors = new String[]{"MineGame159", "squidoodly", "seasnail"};
-      MeteorClient.ADDON.color.parse("145,61,226");
+      MeteorClient.ADDON.name = MeteorClient.NAME;
+      MeteorClient.ADDON.authors = new String[]{"MineGame159", "squidoodly", "seasnail", "Towartz"};
+      MeteorClient.ADDON.color.parse("255,42,85");
 
       ADDONS.add(MeteorClient.ADDON);
+
+      MeteorMCPAddon mcpAddon = new MeteorMCPAddon();
+      mcpAddon.name = "Meteor MCP";
+      mcpAddon.authors = new String[]{"GhostTypes", "cope"};
+      mcpAddon.color.parse("100,150,255");
+      ADDONS.add(mcpAddon);
 
       for (MeteorAddon addon : ServiceLoader.load(MeteorAddon.class)) {
          if (addon.name == null) {

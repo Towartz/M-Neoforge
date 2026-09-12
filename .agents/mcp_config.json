@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "utility-plus": {
+      "command": "C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python314\\python.exe",
+      "args": [
+        "C:\\Users\\Administrator\\Documents\\Meteor-Neoforge-build\\tools\\mcp_bridge.py"
+      ]
+    }
+  }
+}

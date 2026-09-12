@@ -1,4 +1,4 @@
-﻿# Gradle
+# Gradle
 .gradle/
 build/
 
@@ -9,9 +9,13 @@ build/
 
 # Decompiled & local tool caches
 decompiled/
-tools/
+/tools/*
+!/tools/mcp_bridge.py
+!/tools/*.example.json
+!/tools/*.md
 scratch/
 __pycache__/
+ADDONS/
 
 # Logs & temp
 *.log

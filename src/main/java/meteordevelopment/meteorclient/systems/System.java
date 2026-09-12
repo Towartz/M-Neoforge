@@ -37,7 +37,7 @@ public abstract class System<T> implements ISerializable<T> {
          if (tag != null) {
             File tempFile = null;
             try {
-               tempFile = File.createTempFile("meteor-client", file.getName());
+               tempFile = File.createTempFile("utility", file.getName());
                NbtIo.write(tag, tempFile.toPath());
                if (folder != null) {
                   file = new File(folder, file.getName());

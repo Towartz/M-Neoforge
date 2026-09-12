@@ -16,8 +16,8 @@ public class Main {
       UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
       int option = JOptionPane.showOptionDialog(
          null,
-         "To install Meteor Client you need to put it in your mods folder and run Fabric for latest Minecraft version.",
-         "Meteor Client",
+         "To install Utility+ you need to put it in your mods folder and run NeoForge for Minecraft 1.21.1.",
+         "Utility+",
          0,
          0,
          null,

@@ -260,6 +260,15 @@ public class ChunkScanner extends Module {
    public void onDeactivate() {
       this.stopMining();
       this.highlightedBlock = null;
+      this.lastResult = null;
+      this.lastChunkPos = null;
+      this.recentBrokenOrePositions.clear();
+      this.blacklistedDropEntityIds.clear();
+   }
+
+   @EventHandler
+   private void onGameLeft(meteordevelopment.meteorclient.events.game.GameLeftEvent event) {
+      this.onDeactivate();
    }
 
    public boolean isMining() {

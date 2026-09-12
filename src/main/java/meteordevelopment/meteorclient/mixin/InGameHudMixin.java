@@ -47,11 +47,11 @@ public abstract class InGameHudMixin {
    }
 
    @Inject(
-      method = {"renderStatusEffectOverlay"},
+      method = {"renderEffects"},
       at = {@At("HEAD")},
       cancellable = true
    )
-   private void onRenderStatusEffectOverlay(CallbackInfo info) {
+   private void onRenderEffects(GuiGraphics context, DeltaTracker tickCounter, CallbackInfo info) {
       if (Modules.get().get(NoRender.class).noPotionIcons()) {
          info.cancel();
       }

@@ -38,6 +38,8 @@ import meteordevelopment.meteorclient.gui.widgets.input.WSlider;
 import meteordevelopment.meteorclient.gui.widgets.input.WTextBox;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WCheckbox;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WConfirmedButton;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WConfirmedMinus;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WFavorite;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WMinus;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WPlus;
@@ -110,7 +112,23 @@ public abstract class GuiTheme implements ISerializable<GuiTheme> {
       return this.button(null, texture);
    }
 
+   public abstract WConfirmedButton confirmedButton(String text, String confirmText, GuiTexture texture);
+
+   public WConfirmedButton confirmedButton(String text, String confirmText) {
+      return this.confirmedButton(text, confirmText, null);
+   }
+
+   public WConfirmedButton confirmedButton(String text) {
+      return this.confirmedButton(text, "Are you sure?", null);
+   }
+
+   public WConfirmedButton confirmedButton(GuiTexture texture) {
+      return this.confirmedButton(null, null, texture);
+   }
+
    public abstract WMinus minus();
+
+   public abstract WConfirmedMinus confirmedMinus();
 
    public abstract WPlus plus();
 

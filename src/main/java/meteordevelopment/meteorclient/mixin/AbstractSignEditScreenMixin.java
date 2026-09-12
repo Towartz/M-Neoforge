@@ -30,14 +30,14 @@ public abstract class AbstractSignEditScreenMixin {
       MutableComponent modified = MutableComponent.create(message.getContents());
       if (message.getContents() instanceof KeybindContents content) {
          String key = content.getName();
-         if (key.contains("meteor-client")) {
+         if (key.contains("utility") || key.contains("meteor-client")) {
             modified = MutableComponent.create(new LiteralContents(key));
          }
       }
 
       if (message.getContents() instanceof TranslatableContents contentx) {
          String key = contentx.getKey();
-         if (key.contains("meteor-client")) {
+         if (key.contains("utility") || key.contains("meteor-client")) {
             modified = MutableComponent.create(new LiteralContents(key));
          }
       }

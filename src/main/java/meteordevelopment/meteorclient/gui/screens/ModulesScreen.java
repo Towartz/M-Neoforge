@@ -3,6 +3,7 @@ package meteordevelopment.meteorclient.gui.screens;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.tabs.TabScreen;
 import meteordevelopment.meteorclient.gui.tabs.Tabs;
@@ -63,37 +64,41 @@ public class ModulesScreen extends TabScreen {
    }
 
    protected void createSearchW(WContainer w, String text) {
-      if (!text.isEmpty()) {
-         Set<Module> modules = Modules.get().searchTitles(text);
-         if (!modules.isEmpty()) {
-            WSection section = w.add(this.theme.section("Modules")).expandX().widget();
-            section.spacing = 0.0;
-            int count = 0;
+      if (text != null && !text.trim().isEmpty()) {
+         try {
+            Set<Module> modules = Modules.get().searchTitles(text);
+            if (modules != null && !modules.isEmpty()) {
+               WSection section = w.add(this.theme.section("Modules")).expandX().widget();
+               section.spacing = 0.0;
+               int count = 0;
 
-            for (Module module : modules) {
-               if (count >= Config.get().moduleSearchCount.get() || count >= modules.size()) {
-                  break;
+               for (Module module : modules) {
+                  if (count >= Config.get().moduleSearchCount.get() || count >= modules.size()) {
+                     break;
+                  }
+
+                  section.add(this.theme.module(module)).expandX();
+                  count++;
                }
-
-               section.add(this.theme.module(module)).expandX();
-               count++;
             }
-         }
 
-         modules = Modules.get().searchSettingTitles(text);
-         if (!modules.isEmpty()) {
-            WSection section = w.add(this.theme.section("Settings")).expandX().widget();
-            section.spacing = 0.0;
-            int count = 0;
+            modules = Modules.get().searchSettingTitles(text);
+            if (modules != null && !modules.isEmpty()) {
+               WSection section = w.add(this.theme.section("Settings")).expandX().widget();
+               section.spacing = 0.0;
+               int count = 0;
 
-            for (Module module : modules) {
-               if (count >= Config.get().moduleSearchCount.get() || count >= modules.size()) {
-                  break;
+               for (Module module : modules) {
+                  if (count >= Config.get().moduleSearchCount.get() || count >= modules.size()) {
+                     break;
+                  }
+
+                  section.add(this.theme.module(module)).expandX();
+                  count++;
                }
-
-               section.add(this.theme.module(module)).expandX();
-               count++;
             }
+         } catch (Throwable t) {
+            MeteorClient.LOG.error("Error executing module search for '{}'", text, t);
          }
       }
    }

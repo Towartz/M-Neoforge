@@ -1,2 +1,13 @@
 package net.caffeinemc.mods.sodium.client.render.chunk.compile.pipeline;
-public class BlockRenderer {}
+
+import net.caffeinemc.mods.sodium.client.render.chunk.terrain.material.Material;
+import net.caffeinemc.mods.sodium.client.render.frapi.mesh.MutableQuadViewImpl;
+import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
+
+public class BlockRenderer {
+    public void renderModel(BakedModel model, BlockState state, BlockPos pos, BlockPos origin) {}
+    protected void processQuad(MutableQuadViewImpl quad) {}
+    private void bufferQuad(MutableQuadViewImpl quad, float[] brightnesses, Material material) {}
+}

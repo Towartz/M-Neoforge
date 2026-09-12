@@ -50,8 +50,11 @@ public class Xray extends Module {
       Blocks.NETHER_QUARTZ_ORE,
       Blocks.ANCIENT_DEBRIS
    );
+   private volatile java.util.Set<Block> blockSet = new it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<>(ORES);
+
    private final Setting<List<Block>> blocks = this.sgGeneral
       .add(new BlockListSetting.Builder().name("whitelist").description("Which blocks to show x-rayed.").defaultValue(ORES).onChanged(v -> {
+         this.updateBlockSet();
          if (this.isActive()) {
             this.mc.levelRenderer.allChanged();
          }
@@ -102,6 +105,7 @@ public class Xray extends Module {
       if (this.autoDiscover.get()) {
          OreDiscovery.applyTo(this.blocks.get());
       }
+      this.updateBlockSet();
       this.mc.levelRenderer.allChanged();
    }
 
@@ -122,9 +126,7 @@ public class Xray extends Module {
          }
       };
 
-      if (MixinPlugin.isSodiumPresent) {
-         list.add(theme.label("Warning: Due to Sodium in use, opacity is overridden to 0."));
-      } else if (MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse()) {
+      if (MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse()) {
          list.add(theme.label("Warning: Due to shaders in use, opacity is overridden to 0."));
       }
 
@@ -160,28 +162,46 @@ public class Xray extends Module {
       }
    }
 
-   public boolean isBlocked(Block block, BlockPos blockPos) {
-      return !this.blocks.get().contains(block) || this.exposedOnly.get() && blockPos != null && !BlockUtils.isExposed(blockPos);
+   public void updateBlockSet() {
+      List<Block> list = this.blocks.get();
+      if (list != null && !list.isEmpty()) {
+         this.blockSet = new it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<>(list);
+      } else {
+         this.blockSet = java.util.Collections.emptySet();
+      }
    }
 
-   public static int getAlpha(BlockState state, BlockPos pos) {
-      WallHack wallHack = Modules.get().get(WallHack.class);
-      Xray xray = Modules.get().get(Xray.class);
-      if (wallHack.isActive() && wallHack.blocks.get().contains(state.getBlock())) {
-         if (!MixinPlugin.isSodiumPresent && (!MixinPlugin.isIrisPresent || !IrisApi.getInstance().isShaderPackInUse())) {
-            int alpha;
-            if (xray.isActive()) {
-               alpha = xray.opacity.get();
-            } else {
-               alpha = wallHack.opacity.get();
-            }
+   public boolean isBlocked(Block block, BlockPos blockPos) {
+      return !this.blockSet.contains(block) || (this.exposedOnly.get() && blockPos != null && !BlockUtils.isExposed(blockPos));
+   }
 
-            return alpha;
-         } else {
+   private static WallHack cachedWallHack = null;
+   private static Xray cachedXray = null;
+
+   public static int getAlpha(BlockState state, BlockPos pos) {
+      WallHack wallHack = cachedWallHack;
+      if (wallHack == null && Modules.get() != null) {
+         cachedWallHack = wallHack = Modules.get().get(WallHack.class);
+      }
+      Xray xray = cachedXray;
+      if (xray == null && Modules.get() != null) {
+         cachedXray = xray = Modules.get().get(Xray.class);
+      }
+      boolean whActive = wallHack != null && wallHack.isActive();
+      boolean xrayActive = xray != null && xray.isActive();
+
+      if (!whActive && !xrayActive) {
+         return -1;
+      }
+
+      Block block = state.getBlock();
+      if (whActive && wallHack.contains(block)) {
+         if (MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse()) {
             return 0;
          }
-      } else if (xray.isActive() && !wallHack.isActive() && xray.isBlocked(state.getBlock(), pos)) {
-         return !MixinPlugin.isSodiumPresent && (!MixinPlugin.isIrisPresent || !IrisApi.getInstance().isShaderPackInUse()) ? xray.opacity.get() : 0;
+         return xrayActive ? xray.opacity.get() : wallHack.opacity.get();
+      } else if (xrayActive && !whActive && xray.isBlocked(block, pos)) {
+         return (MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse()) ? 0 : xray.opacity.get();
       } else {
          return -1;
       }

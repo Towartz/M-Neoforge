@@ -82,23 +82,23 @@ public class MeteorStarscript {
       ss.set("ping", MeteorStarscript::ping);
       ss.set("time", () -> Value.string(LocalTime.now().format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))));
       ss.set("cps", () -> Value.number((double)CPSUtils.getCpsAverage()));
-      ss.set(
-         "meteor",
-         new ValueMap()
-            .set("name", MeteorClient.NAME)
-            .set(
-               "version",
-               MeteorClient.VERSION != null
-                  ? (MeteorClient.DEV_BUILD.isEmpty() ? MeteorClient.VERSION.toString() : MeteorClient.VERSION + " " + MeteorClient.DEV_BUILD)
-                  : ""
-            )
-            .set("modules", () -> Value.number((double)Modules.get().getAll().size()))
-            .set("active_modules", () -> Value.number((double)Modules.get().getActive().size()))
-            .set("is_module_active", MeteorStarscript::isModuleActive)
-            .set("get_module_info", MeteorStarscript::getModuleInfo)
-            .set("get_module_setting", MeteorStarscript::getModuleSetting)
-            .set("prefix", MeteorStarscript::getMeteorPrefix)
-      );
+      ValueMap clientMap = new ValueMap()
+         .set("name", MeteorClient.NAME)
+         .set(
+            "version",
+            MeteorClient.VERSION != null
+               ? (MeteorClient.DEV_BUILD.isEmpty() ? MeteorClient.VERSION.toString() : MeteorClient.VERSION + " " + MeteorClient.DEV_BUILD)
+               : ""
+         )
+         .set("modules", () -> Value.number((double)Modules.get().getAll().size()))
+         .set("active_modules", () -> Value.number((double)Modules.get().getActive().size()))
+         .set("is_module_active", MeteorStarscript::isModuleActive)
+         .set("get_module_info", MeteorStarscript::getModuleInfo)
+         .set("get_module_setting", MeteorStarscript::getModuleSetting)
+         .set("prefix", MeteorStarscript::getMeteorPrefix);
+
+      ss.set("utility", clientMap);
+      ss.set("meteor", clientMap);
       if (BaritoneUtils.IS_AVAILABLE) {
          ss.set(
             "baritone",

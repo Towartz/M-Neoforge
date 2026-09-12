@@ -61,7 +61,7 @@ public class Config extends System<Config> {
             .name("window-title-text")
             .description("The text it displays in the window title.")
             .visible(this.customWindowTitle::get)
-            .defaultValue("Minecraft {mc_version} - {meteor.name} {meteor.version}")
+            .defaultValue("Minecraft {mc_version} - {utility.name} {utility.version}")
             .onChanged(value -> MeteorClient.mc.updateTitle())
             .build()
       );
@@ -72,7 +72,7 @@ public class Config extends System<Config> {
       .add(
          new BoolSetting.Builder()
             .name("chat-feedback")
-            .description("Sends chat feedback when meteor performs certain actions.")
+            .description("Sends chat feedback when Utility+ performs certain actions.")
             .defaultValue(Boolean.valueOf(true))
             .build()
       );

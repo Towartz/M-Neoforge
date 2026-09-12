@@ -83,7 +83,7 @@ public class DiscordPresence extends Module {
             .name("line-2-messages")
             .description("Messages used for the second line.")
             .defaultValue(
-               "Meteor on Crack!", "{round(server.tps, 1)} TPS", "Playing on {server.difficulty} difficulty.", "{server.player_count} Players online"
+               "Utility+ Powered!", "{round(server.tps, 1)} TPS", "Playing on {server.difficulty} difficulty.", "{server.player_count} Players online"
             )
             .onChanged(strings -> this.recompileLine2())
             .renderer(StarscriptTextBoxRenderer.class)
@@ -120,7 +120,7 @@ public class DiscordPresence extends Module {
    public static final List<Tuple<String, String>> customStates = new ArrayList<>();
 
    public DiscordPresence() {
-      super(Categories.Misc, "discord-presence", "Displays Meteor as your presence on Discord.");
+      super(Categories.Misc, "discord-presence", "Displays Utility+ as your presence on Discord.");
       this.runInMainMenu = true;
    }
 

@@ -50,6 +50,7 @@ import meteordevelopment.meteorclient.systems.modules.combat.CrystalAura;
 import meteordevelopment.meteorclient.systems.modules.combat.Hitboxes;
 import meteordevelopment.meteorclient.systems.modules.combat.HoleFiller;
 import meteordevelopment.meteorclient.systems.modules.combat.KillAura;
+import meteordevelopment.meteorclient.systems.modules.combat.MaceDamage;
 import meteordevelopment.meteorclient.systems.modules.combat.Offhand;
 import meteordevelopment.meteorclient.systems.modules.combat.Quiver;
 import meteordevelopment.meteorclient.systems.modules.combat.SelfAnvil;
@@ -65,14 +66,12 @@ import meteordevelopment.meteorclient.systems.modules.misc.BetterChat;
 import meteordevelopment.meteorclient.systems.modules.misc.BookBot;
 import meteordevelopment.meteorclient.systems.modules.misc.DiscordPresence;
 import meteordevelopment.meteorclient.systems.modules.misc.InventoryTweaks;
-import meteordevelopment.meteorclient.systems.modules.misc.MessageAura;
 import meteordevelopment.meteorclient.systems.modules.misc.NameProtect;
 import meteordevelopment.meteorclient.systems.modules.misc.Notebot;
 import meteordevelopment.meteorclient.systems.modules.misc.Notifier;
 import meteordevelopment.meteorclient.systems.modules.misc.PacketCanceller;
 import meteordevelopment.meteorclient.systems.modules.misc.ServerSpoof;
 import meteordevelopment.meteorclient.systems.modules.misc.SoundBlocker;
-import meteordevelopment.meteorclient.systems.modules.misc.Spam;
 import meteordevelopment.meteorclient.systems.modules.misc.swarm.Swarm;
 import meteordevelopment.meteorclient.systems.modules.movement.AirJump;
 import meteordevelopment.meteorclient.systems.modules.movement.Anchor;
@@ -110,6 +109,7 @@ import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraF
 import meteordevelopment.meteorclient.systems.modules.movement.speed.Speed;
 import meteordevelopment.meteorclient.systems.modules.player.AntiHunger;
 import meteordevelopment.meteorclient.systems.modules.player.AutoClicker;
+import meteordevelopment.meteorclient.systems.modules.player.AutoCraft;
 import meteordevelopment.meteorclient.systems.modules.player.AutoEat;
 import meteordevelopment.meteorclient.systems.modules.player.AutoFish;
 import meteordevelopment.meteorclient.systems.modules.player.AutoGap;
@@ -183,12 +183,14 @@ import meteordevelopment.meteorclient.systems.modules.world.AutoNametag;
 import meteordevelopment.meteorclient.systems.modules.world.AutoShearer;
 import meteordevelopment.meteorclient.systems.modules.world.AutoSign;
 import meteordevelopment.meteorclient.systems.modules.world.AutoSmelter;
+import meteordevelopment.meteorclient.systems.modules.world.BonemealAura;
 import meteordevelopment.meteorclient.systems.modules.world.BuildHeight;
 import meteordevelopment.meteorclient.systems.modules.world.ChunkScanner;
 import meteordevelopment.meteorclient.systems.modules.world.Collisions;
 import meteordevelopment.meteorclient.systems.modules.world.EChestFarmer;
 import meteordevelopment.meteorclient.systems.modules.world.EndermanLook;
 import meteordevelopment.meteorclient.systems.modules.world.Excavator;
+import meteordevelopment.meteorclient.systems.modules.world.FeedAura;
 import meteordevelopment.meteorclient.systems.modules.world.Flamethrower;
 import meteordevelopment.meteorclient.systems.modules.world.GotoSurface;
 import meteordevelopment.meteorclient.systems.modules.world.HighwayBuilder;
@@ -200,11 +202,17 @@ import meteordevelopment.meteorclient.systems.modules.world.Nuker;
 import meteordevelopment.meteorclient.systems.modules.world.PacketMine;
 import meteordevelopment.meteorclient.systems.modules.world.SpawnProofer;
 import meteordevelopment.meteorclient.systems.modules.world.StashFinder;
+import meteordevelopment.meteorclient.systems.modules.world.TillAura;
 import meteordevelopment.meteorclient.systems.modules.world.Timer;
 import meteordevelopment.meteorclient.systems.modules.world.VeinMiner;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.Keybind;
-import meteordevelopment.meteorclient.utils.misc.ValueComparableMap;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import meteordevelopment.meteorclient.systems.modules.player.NoStatusEffects;
+import meteordevelopment.meteorclient.systems.modules.render.WeatherChanger;
 import meteordevelopment.meteorclient.utils.misc.input.Input;
 import meteordevelopment.meteorclient.utils.misc.input.KeyAction;
 import meteordevelopment.orbit.EventHandler;
@@ -339,7 +347,11 @@ public class Modules extends System<Modules> {
    }
 
    public Set<Module> searchTitles(String text) {
-      Map<Module, Integer> modules = new ValueComparableMap<>(Comparator.naturalOrder());
+      if (text == null || text.trim().isEmpty()) {
+         return Collections.emptySet();
+      }
+
+      Map<Module, Integer> scores = new HashMap<>();
 
       for (Module module : this.moduleInstances.values()) {
          int score = Utils.searchLevenshteinDefault(module.title, text, false);
@@ -352,14 +364,20 @@ public class Modules extends System<Modules> {
             }
          }
 
-         modules.put(module, modules.getOrDefault(module, 0) + score);
+         scores.put(module, score);
       }
 
-      return modules.keySet();
+      List<Module> sorted = new ArrayList<>(scores.keySet());
+      sorted.sort(Comparator.<Module>comparingInt(scores::get).thenComparing(m -> m.title.toLowerCase(Locale.ROOT)));
+      return new LinkedHashSet<>(sorted);
    }
 
    public Set<Module> searchSettingTitles(String text) {
-      Map<Module, Integer> modules = new ValueComparableMap<>(Comparator.naturalOrder());
+      if (text == null || text.trim().isEmpty()) {
+         return Collections.emptySet();
+      }
+
+      Map<Module, Integer> scores = new HashMap<>();
 
       for (Module module : this.moduleInstances.values()) {
          int lowest = Integer.MAX_VALUE;
@@ -373,10 +391,12 @@ public class Modules extends System<Modules> {
             }
          }
 
-         modules.put(module, modules.getOrDefault(module, 0) + lowest);
+         scores.put(module, lowest);
       }
 
-      return modules.keySet();
+      List<Module> sorted = new ArrayList<>(scores.keySet());
+      sorted.sort(Comparator.<Module>comparingInt(scores::get).thenComparing(m -> m.title.toLowerCase(Locale.ROOT)));
+      return new LinkedHashSet<>(sorted);
    }
 
    void addActive(Module module) {
@@ -606,6 +626,7 @@ public class Modules extends System<Modules> {
       this.add(new Hitboxes());
       this.add(new HoleFiller());
       this.add(new KillAura());
+      this.add(new MaceDamage());
       this.add(new Offhand());
       this.add(new Quiver());
       this.add(new SelfAnvil());
@@ -643,6 +664,8 @@ public class Modules extends System<Modules> {
       this.add(new Reach());
       this.add(new Rotation());
       this.add(new SpeedMine());
+      this.add(new NoStatusEffects());
+      this.add(new AutoCraft());
    }
 
    private void initMovement() {
@@ -721,6 +744,7 @@ public class Modules extends System<Modules> {
       this.add(new PopChams());
       this.add(new TunnelESP());
       this.add(new BetterTab());
+      this.add(new WeatherChanger());
    }
 
    private void initWorld() {
@@ -733,10 +757,12 @@ public class Modules extends System<Modules> {
       this.add(new AutoShearer());
       this.add(new AutoSign());
       this.add(new AutoSmelter());
+      this.add(new BonemealAura());
       this.add(new BuildHeight());
       this.add(new Collisions());
       this.add(new EChestFarmer());
       this.add(new EndermanLook());
+      this.add(new FeedAura());
       this.add(new Flamethrower());
       this.add(new HighwayBuilder());
       this.add(new LiquidFiller());
@@ -746,6 +772,7 @@ public class Modules extends System<Modules> {
       this.add(new PacketMine());
       this.add(new StashFinder());
       this.add(new SpawnProofer());
+      this.add(new TillAura());
       this.add(new Timer());
       this.add(new VeinMiner());
       this.add(new ChunkScanner());
@@ -767,14 +794,12 @@ public class Modules extends System<Modules> {
       this.add(new BookBot());
       this.add(new DiscordPresence());
       this.add(new InventoryTweaks());
-      this.add(new MessageAura());
       this.add(new NameProtect());
       this.add(new Notebot());
       this.add(new Notifier());
       this.add(new PacketCanceller());
       this.add(new ServerSpoof());
       this.add(new SoundBlocker());
-      this.add(new Spam());
    }
 
    public static class ModuleRegistry extends MappedRegistry<Module> {

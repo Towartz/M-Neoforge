@@ -1,0 +1,34 @@
+package com.cope.meteormcp.llm;
+
+import com.cope.meteormcp.ollama.OllamaClientManager;
+import com.cope.meteormcp.ollama.OllamaExecutor;
+import com.cope.meteormcp.systems.MCPServers;
+import java.util.Set;
+
+public final class OllamaProvider implements LLMProvider {
+   @Override
+   public String name() {
+      return "Ollama";
+   }
+
+   @Override
+   public boolean isConfigured() {
+      return OllamaClientManager.getInstance().isConfigured();
+   }
+
+   @Override
+   public String executeSimplePrompt(String prompt) {
+      return OllamaExecutor.executeSimplePrompt(prompt);
+   }
+
+   @Override
+   public LLMProvider.MCPResult executeWithMCPTools(String prompt, Set<String> serverNames) {
+      return OllamaExecutor.executeWithMCPToolsDetailed(prompt, serverNames);
+   }
+
+   @Override
+   public LLMProvider.TestResult testConnection() {
+      OllamaClientManager.TestResult result = OllamaClientManager.getInstance().quickTest(MCPServers.get().getAIConfig().getOllamaConfig());
+      return new LLMProvider.TestResult(result.success(), result.message());
+   }
+}

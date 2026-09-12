@@ -7,7 +7,7 @@ version = '0.5.8'
 group = 'meteordevelopment'
 
 base {
-    archivesName = 'meteor-client-neoforge-1.21.1'
+    archivesName = 'utility-neoforge-1.21.1'
 }
 
 java {
@@ -34,12 +34,12 @@ neoForge {
     runs {
         client {
             client()
-            systemProperty 'neoforge.enabledGameTestNamespaces', 'meteor_client'
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'utility'
         }
     }
 
     mods {
-        meteor_client {
+        utility {
             sourceSet sourceSets.main
         }
     }
@@ -63,6 +63,8 @@ dependencies {
     implementation 'org.reflections:reflections:0.10.2'
     implementation 'org.tukaani:xz:1.9'
 
+    // MCP Addon dependencies
+    implementation fileTree(dir: 'libs/mcp', include: ['*.jar'])
 }
 
 tasks.named('compileStubsJava') {
@@ -81,10 +83,10 @@ tasks.withType(JavaCompile).configureEach {
 tasks.named('jar') {
     from {
         configurations.runtimeClasspath.filter {
-            it.name.startsWith('reflections-') || it.name.startsWith('xz-')
+            (it.name.startsWith('reflections-') || it.name.startsWith('xz-') || it.parentFile?.name == 'mcp') && !it.name.startsWith('kotlin-stdlib')
         }.collect {
             zipTree(it).matching {
-                exclude 'META-INF/**'
+                exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/**', 'kotlin/**', 'kotlin-stdlib*'
             }
         }
     } {

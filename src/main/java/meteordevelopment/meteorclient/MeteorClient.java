@@ -39,15 +39,15 @@ import org.slf4j.LoggerFactory;
 
 @Mod(MeteorClient.MOD_ID)
 public class MeteorClient {
-   public static final String MOD_ID = "meteor_client";
-   public static final String NAME = "Meteor Client";
+   public static final String MOD_ID = "utility";
+   public static final String NAME = "Utility+";
    public static final Version VERSION = new Version("0.5.8");
    public static final String DEV_BUILD = "";
    public static MeteorClient INSTANCE;
    public static MeteorAddon ADDON;
    public static Minecraft mc;
    public static final IEventBus EVENT_BUS = new EventBus();
-   public static final File FOLDER = FMLPaths.GAMEDIR.get().resolve("meteor-client").toFile();
+   public static final File FOLDER = FMLPaths.GAMEDIR.get().resolve("utility").toFile();
    public static final Logger LOG = LoggerFactory.getLogger(NAME);
    private static boolean initialized = false;
    private boolean wasWidgetScreen;
@@ -74,11 +74,17 @@ public class MeteorClient {
 
       LOG.info("Initializing {}", NAME);
       mc = Minecraft.getInstance();
-         if (!FOLDER.exists()) {
+      if (!FOLDER.exists()) {
+         File oldFolder = FMLPaths.GAMEDIR.get().resolve("meteor-client").toFile();
+         if (oldFolder.exists() && oldFolder.isDirectory()) {
+            LOG.info("Migrating configuration from {} to {}", oldFolder.getName(), FOLDER.getName());
+            copyDirectory(oldFolder, FOLDER);
+         } else {
             FOLDER.getParentFile().mkdirs();
             FOLDER.mkdir();
-            Systems.addPreLoadTask(() -> Modules.get().get(DiscordPresence.class).toggle());
          }
+         Systems.addPreLoadTask(() -> Modules.get().get(DiscordPresence.class).toggle());
+      }
 
          AddonManager.init();
          AddonManager.ADDONS
@@ -172,5 +178,23 @@ public class MeteorClient {
       return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
    }
 
-
+   private static void copyDirectory(File source, File target) {
+      try {
+         if (source.isDirectory()) {
+            if (!target.exists()) target.mkdirs();
+            String[] files = source.list();
+            if (files != null) {
+               for (String file : files) {
+                  File srcFile = new File(source, file);
+                  File destFile = new File(target, file);
+                  copyDirectory(srcFile, destFile);
+               }
+            }
+         } else {
+            java.nio.file.Files.copy(source.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+         }
+      } catch (Exception e) {
+         LOG.error("Failed to copy directory during migration: {} to {}", source, target, e);
+      }
+   }
 }

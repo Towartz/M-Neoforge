@@ -1,6 +1,5 @@
 package meteordevelopment.meteorclient.systems.modules.movement;
 
-import java.util.List;
 import java.util.Random;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.BoolSetting;
@@ -8,17 +7,14 @@ import meteordevelopment.meteorclient.settings.EnumSetting;
 import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
-import meteordevelopment.meteorclient.settings.StringListSetting;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.Utils;
-import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.orbit.EventHandler;
 
 public class AntiAFK extends Module {
    private final SettingGroup sgActions = this.settings.createGroup("Actions");
-   private final SettingGroup sgMessages = this.settings.createGroup("Messages");
    private final Setting<Boolean> jump = this.sgActions
       .add(new BoolSetting.Builder().name("jump").description("Jump randomly.").defaultValue(Boolean.valueOf(true)).build());
    private final Setting<Boolean> swing = this.sgActions
@@ -68,46 +64,7 @@ public class AntiAFK extends Module {
             .visible(() -> this.spin.get() && this.spinMode.get() == AntiAFK.SpinMode.Server)
             .build()
       );
-   private final Setting<Boolean> sendMessages = this.sgMessages
-      .add(
-         new BoolSetting.Builder()
-            .name("send-messages")
-            .description("Sends messages to prevent getting kicked for AFK.")
-            .defaultValue(Boolean.valueOf(false))
-            .build()
-      );
-   private final Setting<Boolean> randomMessage = this.sgMessages
-      .add(
-         new BoolSetting.Builder()
-            .name("random")
-            .description("Selects a random message from your message list.")
-            .defaultValue(Boolean.valueOf(false))
-            .visible(this.sendMessages::get)
-            .build()
-      );
-   private final Setting<Integer> delay = this.sgMessages
-      .add(
-         new IntSetting.Builder()
-            .name("delay")
-            .description("The delay between specified messages in seconds.")
-            .defaultValue(Integer.valueOf(15))
-            .min(0)
-            .sliderMax(30)
-            .visible(this.sendMessages::get)
-            .build()
-      );
-   private final Setting<List<String>> messages = this.sgMessages
-      .add(
-         new StringListSetting.Builder()
-            .name("messages")
-            .description("The messages to choose from.")
-            .defaultValue("Meteor on top!", "Meteor on crack!")
-            .visible(this.sendMessages::get)
-            .build()
-      );
    private final Random random = new Random();
-   private int messageTimer = 0;
-   private int messageI = 0;
    private int sneakTimer = 0;
    private int strafeTimer = 0;
    private boolean direction = false;
@@ -119,13 +76,7 @@ public class AntiAFK extends Module {
 
    @Override
    public void onActivate() {
-      if (this.sendMessages.get() && this.messages.get().isEmpty()) {
-         this.warning("Message list is empty, disabling messages...", new Object[0]);
-         this.sendMessages.set(false);
-      }
-
       this.prevYaw = this.mc.player.getYRot();
-      this.messageTimer = this.delay.get() * 20;
    }
 
    @Override
@@ -178,17 +129,6 @@ public class AntiAFK extends Module {
                case Client:
                   this.mc.player.setYRot(this.prevYaw);
             }
-         }
-
-         if (this.sendMessages.get() && !this.messages.get().isEmpty() && this.messageTimer-- <= 0) {
-            if (this.randomMessage.get()) {
-               this.messageI = this.random.nextInt(this.messages.get().size());
-            } else if (++this.messageI >= this.messages.get().size()) {
-               this.messageI = 0;
-            }
-
-            ChatUtils.sendPlayerMsg(this.messages.get().get(this.messageI));
-            this.messageTimer = this.delay.get() * 20;
          }
       }
    }

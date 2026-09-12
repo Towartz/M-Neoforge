@@ -94,7 +94,7 @@ public class BookBot extends Module {
          new StringSetting.Builder()
             .name("name")
             .description("The name you want to give your books.")
-            .defaultValue("Meteor on Crack!")
+            .defaultValue("Utility+")
             .visible(this.sign::get)
             .build()
       );

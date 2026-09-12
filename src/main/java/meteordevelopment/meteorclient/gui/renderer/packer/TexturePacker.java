@@ -28,10 +28,21 @@ public class TexturePacker {
          InputStream in = null;
          if (MeteorClient.mc != null && MeteorClient.mc.getResourceManager() != null) {
             Optional<Resource> res = MeteorClient.mc.getResourceManager().getResource(id);
-            if (res.isEmpty() && id.getNamespace().equals("meteor_client")) {
+            if (res.isEmpty() && id.getNamespace().equals("utility")) {
                res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("meteor-client", id.getPath()));
+               if (res.isEmpty()) {
+                  res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("meteor_client", id.getPath()));
+               }
+            } else if (res.isEmpty() && id.getNamespace().equals("meteor_client")) {
+               res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("utility", id.getPath()));
+               if (res.isEmpty()) {
+                  res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("meteor-client", id.getPath()));
+               }
             } else if (res.isEmpty() && id.getNamespace().equals("meteor-client")) {
-               res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("meteor_client", id.getPath()));
+               res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("utility", id.getPath()));
+               if (res.isEmpty()) {
+                  res = MeteorClient.mc.getResourceManager().getResource(ResourceLocation.fromNamespaceAndPath("meteor_client", id.getPath()));
+               }
             }
             if (res.isPresent()) {
                in = res.get().open();
@@ -39,7 +50,10 @@ public class TexturePacker {
          }
          if (in == null) {
             String path = id.getPath();
-            in = TexturePacker.class.getResourceAsStream("/assets/meteor_client/" + path);
+            in = TexturePacker.class.getResourceAsStream("/assets/utility/" + path);
+            if (in == null) {
+               in = TexturePacker.class.getResourceAsStream("/assets/meteor_client/" + path);
+            }
             if (in == null) {
                in = TexturePacker.class.getResourceAsStream("/assets/meteor-client/" + path);
             }

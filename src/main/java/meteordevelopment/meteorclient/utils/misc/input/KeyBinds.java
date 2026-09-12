@@ -6,9 +6,9 @@ import meteordevelopment.meteorclient.mixin.KeyBindingAccessor;
 import net.minecraft.client.KeyMapping;
 
 public class KeyBinds {
-   private static final String CATEGORY = "Meteor Client";
-   public static KeyMapping OPEN_GUI = new KeyMapping("key.meteor-client.open-gui", Type.KEYSYM, 344, "Meteor Client");
-   public static KeyMapping OPEN_COMMANDS = new KeyMapping("key.meteor-client.open-commands", Type.KEYSYM, 46, "Meteor Client");
+   private static final String CATEGORY = meteordevelopment.meteorclient.MeteorClient.NAME;
+   public static KeyMapping OPEN_GUI = new KeyMapping("key.utility.open-gui", Type.KEYSYM, 344, CATEGORY);
+   public static KeyMapping OPEN_COMMANDS = new KeyMapping("key.utility.open-commands", Type.KEYSYM, 46, CATEGORY);
 
    private KeyBinds() {
    }
@@ -23,7 +23,7 @@ public class KeyBinds {
          }
       }
 
-      categories.put("Meteor Client", highest + 1);
+      categories.put(CATEGORY, highest + 1);
       KeyMapping[] newBinds = new KeyMapping[binds.length + 2];
       System.arraycopy(binds, 0, newBinds, 0, binds.length);
       newBinds[binds.length] = OPEN_GUI;

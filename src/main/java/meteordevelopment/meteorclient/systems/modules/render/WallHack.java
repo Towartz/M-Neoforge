@@ -33,8 +33,11 @@ public class WallHack extends Module {
             })
             .build()
       );
+   private volatile java.util.Set<Block> blockSet = java.util.Collections.emptySet();
+
    public final Setting<List<Block>> blocks = this.sgGeneral
       .add(new BlockListSetting.Builder().name("blocks").description("What blocks should be targeted for Wall Hack.").defaultValue().onChanged(onChanged -> {
+         this.updateBlockSet();
          if (this.isActive()) {
             this.mc.levelRenderer.allChanged();
          }
@@ -52,8 +55,22 @@ public class WallHack extends Module {
       super(Categories.Render, "wall-hack", "Makes blocks translucent.");
    }
 
+   public void updateBlockSet() {
+      List<Block> list = this.blocks.get();
+      if (list != null && !list.isEmpty()) {
+         this.blockSet = new it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<>(list);
+      } else {
+         this.blockSet = java.util.Collections.emptySet();
+      }
+   }
+
+   public boolean contains(Block block) {
+      return this.blockSet.contains(block);
+   }
+
    @Override
    public void onActivate() {
+      this.updateBlockSet();
       this.mc.levelRenderer.allChanged();
    }
 
@@ -64,13 +81,10 @@ public class WallHack extends Module {
 
    @Override
    public WWidget getWidget(GuiTheme theme) {
-      if (MixinPlugin.isSodiumPresent) {
-         return theme.label("Warning: Due to Sodium in use, opacity is overridden to 0.");
-      } else {
-         return MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse()
-            ? theme.label("Warning: Due to shaders in use, opacity is overridden to 0.")
-            : null;
+      if (MixinPlugin.isIrisPresent && IrisApi.getInstance().isShaderPackInUse()) {
+         return theme.label("Warning: Due to shaders in use, opacity is overridden to 0.");
       }
+      return null;
    }
 
    @EventHandler

@@ -36,12 +36,12 @@ public class MeteorTextHud {
       "Rotation", "{camera.direction} #1({round(camera.yaw, 1)}, {round(camera.pitch, 1)})", 0
    );
    public static final HudElementInfo<TextHud>.Preset MODULE_ENABLED = addPreset(
-      "Module enabled", "Kill Aura: {meteor.is_module_active(\"kill-aura\") ? #2 \"ON\" : #3 \"OFF\"}", 0
+      "Module enabled", "Kill Aura: {utility.is_module_active(\"kill-aura\") ? #2 \"ON\" : #3 \"OFF\"}", 0
    );
    public static final HudElementInfo<TextHud>.Preset MODULE_ENABLED_WITH_INFO = addPreset(
-      "Module enabled with info", "Kill Aura: {meteor.is_module_active(\"kill-aura\") ? #2 \"ON\" : #3 \"OFF\"} #1{meteor.get_module_info(\"kill-aura\")}", 0
+      "Module enabled with info", "Kill Aura: {utility.is_module_active(\"kill-aura\") ? #2 \"ON\" : #3 \"OFF\"} #1{utility.get_module_info(\"kill-aura\")}", 0
    );
-   public static final HudElementInfo<TextHud>.Preset WATERMARK = addPreset("Watermark", "{meteor.name} #1{meteor.version}");
+   public static final HudElementInfo<TextHud>.Preset WATERMARK = addPreset("Watermark", "{utility.name} #1{utility.version}");
    public static final HudElementInfo<TextHud>.Preset BARITONE = addPreset("Baritone", "Baritone: #1{baritone.process_name}");
 
    private static TextHud create() {
