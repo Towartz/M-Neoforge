@@ -241,6 +241,17 @@ public class PacketUtils {
       return name != null ? name : C2S_PACKETS.get(packetClass);
    }
 
+   public static String getDetailedName(Packet<?> packet) {
+      if (packet == null) return "null";
+      String baseName = getName((Class<? extends Packet<?>>) packet.getClass());
+      if (baseName == null) baseName = packet.getClass().getSimpleName();
+      net.minecraft.resources.ResourceLocation payloadId = NeoForgeNetwork.getPayloadId(packet);
+      if (payloadId != null) {
+         return baseName + " [" + payloadId + "]";
+      }
+      return baseName;
+   }
+
    public static Class<? extends Packet<?>> getPacket(String name) {
       Class<? extends Packet<?>> packet = S2C_PACKETS_R.get(name);
       return packet != null ? packet : C2S_PACKETS_R.get(name);

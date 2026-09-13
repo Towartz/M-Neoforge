@@ -16,6 +16,7 @@ import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.text.RunnableClickEvent;
+import meteordevelopment.meteorclient.utils.network.NeoForgeNetwork;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.ClickEvent;
@@ -47,6 +48,14 @@ public class ServerSpoof extends Module {
       .add(new BoolSetting.Builder().name("resource-pack").description("Spoof accepting server resource pack.").defaultValue(Boolean.valueOf(false)).build());
    private final Setting<Boolean> blockChannels = this.sgGeneral
       .add(new BoolSetting.Builder().name("block-channels").description("Whether or not to block some channels.").defaultValue(Boolean.valueOf(true)).build());
+   private final Setting<Boolean> blockModdedHandshake = this.sgGeneral
+      .add(new BoolSetting.Builder()
+         .name("block-modded-handshake")
+         .description("Block NeoForge/FML/Forge channels to appear as a pure vanilla client.")
+         .defaultValue(false)
+         .visible(this.blockChannels::get)
+         .build()
+      );
    private final Setting<List<String>> channels = this.sgGeneral
       .add(
          new StringListSetting.Builder()
@@ -70,6 +79,13 @@ public class ServerSpoof extends Module {
          if (event.packet instanceof ServerboundCustomPayloadPacket) {
             ResourceLocation id = ((ServerboundCustomPayloadPacket)event.packet).payload().type().id();
             if (this.blockChannels.get()) {
+               if (this.blockModdedHandshake.get()) {
+                  String ns = id.getNamespace().toLowerCase();
+                  if (ns.equals("neoforge") || ns.equals("fml") || ns.equals("forge")) {
+                     event.cancel();
+                     return;
+                  }
+               }
                for (String channel : this.channels.get()) {
                   if (StringUtils.containsIgnoreCase(id.toString(), channel)) {
                      event.cancel();
@@ -80,7 +96,7 @@ public class ServerSpoof extends Module {
 
             if (this.spoofBrand.get() && id.equals(BrandPayload.TYPE.id())) {
                ServerboundCustomPayloadPacket spoofedPacket = new ServerboundCustomPayloadPacket(new BrandPayload(this.brand.get()));
-               event.connection.send(spoofedPacket, null, true);
+               NeoForgeNetwork.sendSilently(event.connection, spoofedPacket, null, true);
                event.cancel();
             }
          }

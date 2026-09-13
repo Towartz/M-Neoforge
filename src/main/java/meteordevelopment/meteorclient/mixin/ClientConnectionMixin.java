@@ -36,6 +36,8 @@ import org.spongepowered.asm.mixin.injection.At.Shift;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import meteordevelopment.meteorclient.utils.network.NeoForgeNetwork;
+
 @Mixin({Connection.class})
 public abstract class ClientConnectionMixin {
    @Inject(
@@ -45,11 +47,22 @@ public abstract class ClientConnectionMixin {
    )
    private void onHandlePacket(ChannelHandlerContext channelHandlerContext, Packet<?> packet, CallbackInfo ci) {
       if (packet instanceof ClientboundBundlePacket bundle) {
-         Iterator<Packet<? super ClientGamePacketListener>> it = bundle.subPackets().iterator();
+         try {
+            Iterator<Packet<? super ClientGamePacketListener>> it = bundle.subPackets().iterator();
 
-         while (it.hasNext()) {
-            if (MeteorClient.EVENT_BUS.post(new PacketEvent.Receive(it.next(), (Connection)(Object)this)).isCancelled()) {
-               it.remove();
+            while (it.hasNext()) {
+               if (MeteorClient.EVENT_BUS.post(new PacketEvent.Receive(it.next(), (Connection)(Object)this)).isCancelled()) {
+                  try {
+                     it.remove();
+                  } catch (UnsupportedOperationException e) {
+                     ci.cancel();
+                     return;
+                  }
+               }
+            }
+         } catch (Throwable t) {
+            if (MeteorClient.EVENT_BUS.post(new PacketEvent.Receive(packet, (Connection)(Object)this)).isCancelled()) {
+               ci.cancel();
             }
          }
       } else if (MeteorClient.EVENT_BUS.post(new PacketEvent.Receive(packet, (Connection)(Object)this)).isCancelled()) {
@@ -81,20 +94,24 @@ public abstract class ClientConnectionMixin {
 
    @Inject(
       at = {@At("HEAD")},
-      method = {"send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V"},
+      method = {"send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;Z)V"},
       cancellable = true
    )
-   private void onSendPacketHead(Packet<?> packet, PacketSendListener callbacks, CallbackInfo ci) {
+   private void onSendPacketHead(Packet<?> packet, @Nullable PacketSendListener callbacks, boolean flush, CallbackInfo ci) {
+      if (NeoForgeNetwork.isSilentSend()) return;
+
       if (MeteorClient.EVENT_BUS.post(new PacketEvent.Send(packet, (Connection)(Object)this)).isCancelled()) {
          ci.cancel();
       }
    }
 
    @Inject(
-      method = {"send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;)V"},
+      method = {"send(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketSendListener;Z)V"},
       at = {@At("TAIL")}
    )
-   private void onSendPacketTail(Packet<?> packet, @Nullable PacketSendListener callbacks, CallbackInfo ci) {
+   private void onSendPacketTail(Packet<?> packet, @Nullable PacketSendListener callbacks, boolean flush, CallbackInfo ci) {
+      if (NeoForgeNetwork.isSilentSend()) return;
+
       MeteorClient.EVENT_BUS.post(new PacketEvent.Sent(packet, (Connection)(Object)this));
    }
 
