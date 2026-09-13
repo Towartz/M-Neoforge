@@ -28,7 +28,7 @@ public class TargetUtils {
 
       Entity best = null;
       for (Entity entity : MeteorClient.mc.level.entitiesForRendering()) {
-         if (entity != null && isGood.test(entity)) {
+         if (entity != null && !meteordevelopment.meteorclient.systems.modules.combat.AntiBot.isBot(entity) && isGood.test(entity)) {
             if (best == null || sortPriority.compare(entity, best) < 0) {
                best = entity;
             }
@@ -55,7 +55,7 @@ public class TargetUtils {
       }
 
       for (Entity entity : MeteorClient.mc.level.entitiesForRendering()) {
-         if (entity != null && isGood.test(entity)) {
+         if (entity != null && !meteordevelopment.meteorclient.systems.modules.combat.AntiBot.isBot(entity) && isGood.test(entity)) {
             targetList.add(entity);
          }
       }
@@ -95,6 +95,9 @@ public class TargetUtils {
                continue;
             }
             if (!Friends.get().shouldAttack(player)) {
+               continue;
+            }
+            if (meteordevelopment.meteorclient.systems.modules.combat.AntiBot.isBot(player)) {
                continue;
             }
             if (EntityUtils.getGameMode(player) != GameType.SURVIVAL && !(player instanceof FakePlayerEntity)) {

@@ -32,6 +32,7 @@ import meteordevelopment.meteorclient.systems.config.Config;
 import meteordevelopment.meteorclient.systems.modules.combat.AnchorAura;
 import meteordevelopment.meteorclient.systems.modules.combat.AntiAnvil;
 import meteordevelopment.meteorclient.systems.modules.combat.AntiBed;
+import meteordevelopment.meteorclient.systems.modules.combat.AntiBot;
 import meteordevelopment.meteorclient.systems.modules.combat.ArrowDodge;
 import meteordevelopment.meteorclient.systems.modules.combat.AutoAnvil;
 import meteordevelopment.meteorclient.systems.modules.combat.AutoArmor;
@@ -57,19 +58,25 @@ import meteordevelopment.meteorclient.systems.modules.combat.SelfAnvil;
 import meteordevelopment.meteorclient.systems.modules.combat.SelfTrap;
 import meteordevelopment.meteorclient.systems.modules.combat.SelfWeb;
 import meteordevelopment.meteorclient.systems.modules.combat.Surround;
+import meteordevelopment.meteorclient.systems.modules.combat.TriggerBot;
 import meteordevelopment.meteorclient.systems.modules.misc.AntiPacketKick;
+import meteordevelopment.meteorclient.systems.modules.misc.AntiVanish;
 import meteordevelopment.meteorclient.systems.modules.misc.AutoLog;
+import meteordevelopment.meteorclient.systems.modules.misc.AutoLogin;
 import meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect;
 import meteordevelopment.meteorclient.systems.modules.misc.AutoRespawn;
 import meteordevelopment.meteorclient.systems.modules.misc.BetterBeacons;
 import meteordevelopment.meteorclient.systems.modules.misc.BetterChat;
 import meteordevelopment.meteorclient.systems.modules.misc.BookBot;
+import meteordevelopment.meteorclient.systems.modules.misc.BundleDupe;
+import meteordevelopment.meteorclient.systems.modules.misc.ContainerDesync;
 import meteordevelopment.meteorclient.systems.modules.misc.DiscordPresence;
 import meteordevelopment.meteorclient.systems.modules.misc.InventoryTweaks;
 import meteordevelopment.meteorclient.systems.modules.misc.NameProtect;
 import meteordevelopment.meteorclient.systems.modules.misc.Notebot;
 import meteordevelopment.meteorclient.systems.modules.misc.Notifier;
 import meteordevelopment.meteorclient.systems.modules.misc.PacketCanceller;
+import meteordevelopment.meteorclient.systems.modules.misc.PingSpoof;
 import meteordevelopment.meteorclient.systems.modules.misc.ServerSpoof;
 import meteordevelopment.meteorclient.systems.modules.misc.SoundBlocker;
 import meteordevelopment.meteorclient.systems.modules.misc.swarm.Swarm;
@@ -95,6 +102,7 @@ import meteordevelopment.meteorclient.systems.modules.movement.LongJump;
 import meteordevelopment.meteorclient.systems.modules.movement.NoFall;
 import meteordevelopment.meteorclient.systems.modules.movement.NoSlow;
 import meteordevelopment.meteorclient.systems.modules.movement.Parkour;
+import meteordevelopment.meteorclient.systems.modules.movement.Phase;
 import meteordevelopment.meteorclient.systems.modules.movement.ReverseStep;
 import meteordevelopment.meteorclient.systems.modules.movement.SafeWalk;
 import meteordevelopment.meteorclient.systems.modules.movement.Scaffold;
@@ -103,6 +111,7 @@ import meteordevelopment.meteorclient.systems.modules.movement.Sneak;
 import meteordevelopment.meteorclient.systems.modules.movement.Spider;
 import meteordevelopment.meteorclient.systems.modules.movement.Sprint;
 import meteordevelopment.meteorclient.systems.modules.movement.Step;
+import meteordevelopment.meteorclient.systems.modules.movement.TpClick;
 import meteordevelopment.meteorclient.systems.modules.movement.TridentBoost;
 import meteordevelopment.meteorclient.systems.modules.movement.Velocity;
 import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
@@ -121,6 +130,7 @@ import meteordevelopment.meteorclient.systems.modules.player.ChestSwap;
 import meteordevelopment.meteorclient.systems.modules.player.EXPThrower;
 import meteordevelopment.meteorclient.systems.modules.player.FakePlayer;
 import meteordevelopment.meteorclient.systems.modules.player.FastUse;
+import meteordevelopment.meteorclient.systems.modules.player.GhostBlocks;
 import meteordevelopment.meteorclient.systems.modules.player.GhostHand;
 import meteordevelopment.meteorclient.systems.modules.player.InstantRebreak;
 import meteordevelopment.meteorclient.systems.modules.player.LiquidInteract;
@@ -136,6 +146,7 @@ import meteordevelopment.meteorclient.systems.modules.player.PotionSpoof;
 import meteordevelopment.meteorclient.systems.modules.player.Reach;
 import meteordevelopment.meteorclient.systems.modules.player.Rotation;
 import meteordevelopment.meteorclient.systems.modules.player.SpeedMine;
+import meteordevelopment.meteorclient.systems.modules.player.XCarry;
 import meteordevelopment.meteorclient.systems.modules.render.BetterTab;
 import meteordevelopment.meteorclient.systems.modules.render.BetterTooltips;
 import meteordevelopment.meteorclient.systems.modules.render.BlockSelection;
@@ -148,6 +159,7 @@ import meteordevelopment.meteorclient.systems.modules.render.Chams;
 import meteordevelopment.meteorclient.systems.modules.render.CityESP;
 import meteordevelopment.meteorclient.systems.modules.render.ESP;
 import meteordevelopment.meteorclient.systems.modules.render.EntityOwner;
+import meteordevelopment.meteorclient.systems.modules.render.FakeCoords;
 import meteordevelopment.meteorclient.systems.modules.render.FreeLook;
 import meteordevelopment.meteorclient.systems.modules.render.Freecam;
 import meteordevelopment.meteorclient.systems.modules.render.Fullbright;
@@ -178,11 +190,13 @@ import meteordevelopment.meteorclient.systems.modules.world.AirPlace;
 import meteordevelopment.meteorclient.systems.modules.world.Ambience;
 import meteordevelopment.meteorclient.systems.modules.world.AutoBreed;
 import meteordevelopment.meteorclient.systems.modules.world.AutoBrewer;
+import meteordevelopment.meteorclient.systems.modules.world.AutoFarm;
 import meteordevelopment.meteorclient.systems.modules.world.AutoMount;
 import meteordevelopment.meteorclient.systems.modules.world.AutoNametag;
 import meteordevelopment.meteorclient.systems.modules.world.AutoShearer;
 import meteordevelopment.meteorclient.systems.modules.world.AutoSign;
 import meteordevelopment.meteorclient.systems.modules.world.AutoSmelter;
+import meteordevelopment.meteorclient.systems.modules.world.BedDefender;
 import meteordevelopment.meteorclient.systems.modules.world.BonemealAura;
 import meteordevelopment.meteorclient.systems.modules.world.BuildHeight;
 import meteordevelopment.meteorclient.systems.modules.world.ChunkScanner;
@@ -608,6 +622,7 @@ public class Modules extends System<Modules> {
       this.add(new AnchorAura());
       this.add(new AntiAnvil());
       this.add(new AntiBed());
+      this.add(new AntiBot());
       this.add(new ArrowDodge());
       this.add(new AutoAnvil());
       this.add(new AutoArmor());
@@ -633,6 +648,7 @@ public class Modules extends System<Modules> {
       this.add(new SelfTrap());
       this.add(new SelfWeb());
       this.add(new Surround());
+      this.add(new TriggerBot());
    }
 
    private void initPlayer() {
@@ -666,6 +682,8 @@ public class Modules extends System<Modules> {
       this.add(new SpeedMine());
       this.add(new NoStatusEffects());
       this.add(new AutoCraft());
+      this.add(new GhostBlocks());
+      this.add(new XCarry());
    }
 
    private void initMovement() {
@@ -702,6 +720,8 @@ public class Modules extends System<Modules> {
       this.add(new Sprint());
       this.add(new Step());
       this.add(new TridentBoost());
+      this.add(new TpClick());
+      this.add(new Phase());
       this.add(new Velocity());
    }
 
@@ -745,6 +765,7 @@ public class Modules extends System<Modules> {
       this.add(new TunnelESP());
       this.add(new BetterTab());
       this.add(new WeatherChanger());
+      this.add(new FakeCoords());
    }
 
    private void initWorld() {
@@ -776,6 +797,8 @@ public class Modules extends System<Modules> {
       this.add(new Timer());
       this.add(new VeinMiner());
       this.add(new ChunkScanner());
+      this.add(new BedDefender());
+      this.add(new AutoFarm());
       if (BaritoneUtils.IS_AVAILABLE) {
          this.add(new Excavator());
          this.add(new InfinityMiner());
@@ -800,6 +823,11 @@ public class Modules extends System<Modules> {
       this.add(new PacketCanceller());
       this.add(new ServerSpoof());
       this.add(new SoundBlocker());
+      this.add(new BundleDupe());
+      this.add(new ContainerDesync());
+      this.add(new PingSpoof());
+      this.add(new AntiVanish());
+      this.add(new AutoLogin());
    }
 
    public static class ModuleRegistry extends MappedRegistry<Module> {

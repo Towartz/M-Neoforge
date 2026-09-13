@@ -3,14 +3,17 @@ package meteordevelopment.meteorclient.systems.modules.player.autocraft;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
+import meteordevelopment.meteorclient.utils.world.OreDropHelper;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
@@ -26,6 +29,7 @@ import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.level.block.Block;
 
 public class BackpackAdapter {
    private static Boolean isTravelersLoaded = null;
@@ -783,6 +787,99 @@ public class BackpackAdapter {
       if (fir.found() && MeteorClient.mc.player != null) {
          ItemStack stack = MeteorClient.mc.player.getInventory().getItem(fir.slot());
          return hasCraftingUpgrade(stack);
+      }
+      return false;
+   }
+
+   public static int depositMinedItems(AbstractContainerMenu menu, Collection<Block> targetBlocks, boolean includeRubble) {
+      if (menu == null || !isBackpackMenu(menu)) return 0;
+      BackpackCraftInfo info = getBackpackCraftInfo(menu);
+      if (info.storageStart == -1 || info.storageEnd == -1) return 0;
+
+      int moved = 0;
+      for (int i = 0; i < menu.slots.size(); i++) {
+         Slot slot = menu.slots.get(i);
+         if (slot.container instanceof net.minecraft.world.entity.player.Inventory) {
+            int invSlot = slot.getContainerSlot();
+            // Preserve hotbar slots 0..8 so player retains tools and food
+            if (invSlot < 9 || invSlot > 35) continue;
+
+            ItemStack stack = slot.getItem();
+            if (stack.isEmpty()) continue;
+
+            boolean isTarget = (targetBlocks != null && !targetBlocks.isEmpty() && OreDropHelper.isDropOfAny(stack, targetBlocks));
+            boolean isMinedOre = isOreOrMineral(stack.getItem());
+            boolean isRubble = includeRubble && isMiningRubble(stack.getItem());
+
+            if (isTarget || isMinedOre || isRubble) {
+               int beforeCount = stack.getCount();
+               InvUtils.shiftClick().slotId(i);
+               int afterCount = slot.getItem().getCount();
+               if (afterCount < beforeCount) {
+                  moved += (beforeCount - afterCount);
+               } else {
+                  // Backpack storage may be full
+                  break;
+               }
+            }
+         }
+      }
+      return moved;
+   }
+
+   public static boolean isMiningRubble(Item item) {
+      if (item == null) return false;
+      ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+      if (id == null) return false;
+      String path = id.getPath().toLowerCase(Locale.ROOT);
+      return path.contains("cobblestone")
+         || path.contains("cobbled_deepslate")
+         || path.contains("deepslate")
+         || path.equals("stone")
+         || path.contains("diorite")
+         || path.contains("andesite")
+         || path.contains("granite")
+         || path.contains("tuff")
+         || path.equals("gravel")
+         || path.equals("dirt")
+         || path.contains("netherrack")
+         || path.contains("basalt")
+         || path.contains("blackstone")
+         || path.contains("calcite");
+   }
+
+   public static boolean isOreOrMineral(Item item) {
+      if (item == null) return false;
+      ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+      if (id == null) return false;
+      String path = id.getPath().toLowerCase(Locale.ROOT);
+      return path.startsWith("raw_")
+         || path.endsWith("_raw")
+         || path.endsWith("_ingot")
+         || path.endsWith("_nugget")
+         || path.endsWith("_gem")
+         || path.endsWith("_crystal")
+         || path.endsWith("_dust")
+         || path.endsWith("_shard")
+         || path.contains("diamond")
+         || path.contains("emerald")
+         || path.contains("lapis")
+         || path.contains("redstone")
+         || path.contains("quartz")
+         || path.contains("coal")
+         || path.contains("ancient_debris")
+         || path.contains("netherite")
+         || path.contains("amethyst");
+   }
+
+   public static boolean hasAvailableBackpackStorage(AbstractContainerMenu menu) {
+      if (menu == null || !isBackpackMenu(menu)) return false;
+      BackpackCraftInfo info = getBackpackCraftInfo(menu);
+      if (info.storageStart == -1 || info.storageEnd == -1) return false;
+      for (int i = info.storageStart; i <= Math.min(info.storageEnd, menu.slots.size() - 1); i++) {
+         if (menu.slots.get(i).getItem().isEmpty()) {
+            return true;
+         }
       }
       return false;
    }

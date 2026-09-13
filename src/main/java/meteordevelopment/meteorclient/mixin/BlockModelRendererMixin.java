@@ -3,12 +3,14 @@ package meteordevelopment.meteorclient.mixin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import meteordevelopment.meteorclient.systems.modules.render.Xray;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.ModelBlockRenderer;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockAndTintGetter;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.client.model.data.ModelData;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,11 +25,12 @@ public abstract class BlockModelRendererMixin {
    private final ThreadLocal<Integer> alphas = new ThreadLocal<>();
 
    @Inject(
-      method = {"renderSmooth", "renderFlat"},
-      at = {@At("HEAD")},
-      cancellable = true
+      method = "tesselateBlock(Lnet/minecraft/world/level/BlockAndTintGetter;Lnet/minecraft/client/resources/model/BakedModel;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/BlockPos;Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;ZLnet/minecraft/util/RandomSource;JILnet/neoforged/neoforge/client/model/data/ModelData;Lnet/minecraft/client/renderer/RenderType;)V",
+      at = @At("HEAD"),
+      cancellable = true,
+      require = 0
    )
-   private void onRenderSmooth(
+   private void onTesselateBlock(
       BlockAndTintGetter world,
       BakedModel model,
       BlockState state,
@@ -38,6 +41,8 @@ public abstract class BlockModelRendererMixin {
       RandomSource random,
       long seed,
       int overlay,
+      ModelData modelData,
+      RenderType renderType,
       CallbackInfo info
    ) {
       int alpha = Xray.getAlpha(state, pos);
@@ -49,14 +54,15 @@ public abstract class BlockModelRendererMixin {
    }
 
    @ModifyConstant(
-      method = {"renderQuad"},
-      constant = {@Constant(
+      method = "putQuadData",
+      constant = @Constant(
          floatValue = 1.0F,
          ordinal = 3
-      )}
+      ),
+      require = 0
    )
-   private float renderQuad_modifyAlpha(float original) {
-      int alpha = this.alphas.get();
-      return alpha == -1 ? original : (float)alpha / 255.0F;
+   private float putQuadData_modifyAlpha(float original) {
+      Integer alpha = this.alphas.get();
+      return (alpha == null || alpha == -1) ? original : (float)alpha / 255.0F;
    }
 }

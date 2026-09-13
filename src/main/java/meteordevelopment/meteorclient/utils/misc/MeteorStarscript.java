@@ -118,13 +118,13 @@ public class MeteorStarscript {
          "camera",
          new ValueMap()
             .set(
-               "pos",
-               new ValueMap()
-                  .set("_toString", () -> posString(false, true))
-                  .set("x", () -> Value.number(MeteorClient.mc.gameRenderer.getMainCamera().getPosition().x))
-                  .set("y", () -> Value.number(MeteorClient.mc.gameRenderer.getMainCamera().getPosition().y))
-                  .set("z", () -> Value.number(MeteorClient.mc.gameRenderer.getMainCamera().getPosition().z))
-            )
+                "pos",
+                new ValueMap()
+                   .set("_toString", () -> posString(false, true))
+                   .set("x", () -> Value.number(meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedX(MeteorClient.mc.gameRenderer.getMainCamera().getPosition().x)))
+                   .set("y", () -> Value.number(meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedY(MeteorClient.mc.gameRenderer.getMainCamera().getPosition().y)))
+                   .set("z", () -> Value.number(meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedZ(MeteorClient.mc.gameRenderer.getMainCamera().getPosition().z)))
+             )
             .set(
                "opposite_dim_pos",
                new ValueMap()
@@ -166,13 +166,13 @@ public class MeteorStarscript {
                "gamemode", () -> PlayerUtils.getGameMode() != null ? Value.string(StringUtils.capitalize(PlayerUtils.getGameMode().getName())) : Value.null_()
             )
             .set(
-               "pos",
-               new ValueMap()
-                  .set("_toString", () -> posString(false, false))
-                  .set("x", () -> Value.number(MeteorClient.mc.player != null ? MeteorClient.mc.player.getX() : 0.0))
-                  .set("y", () -> Value.number(MeteorClient.mc.player != null ? MeteorClient.mc.player.getY() : 0.0))
-                  .set("z", () -> Value.number(MeteorClient.mc.player != null ? MeteorClient.mc.player.getZ() : 0.0))
-            )
+                "pos",
+                new ValueMap()
+                   .set("_toString", () -> posString(false, false))
+                   .set("x", () -> Value.number(meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedX(MeteorClient.mc.player != null ? MeteorClient.mc.player.getX() : 0.0)))
+                   .set("y", () -> Value.number(meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedY(MeteorClient.mc.player != null ? MeteorClient.mc.player.getY() : 0.0)))
+                   .set("z", () -> Value.number(meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedZ(MeteorClient.mc.player != null ? MeteorClient.mc.player.getZ() : 0.0)))
+             )
             .set(
                "opposite_dim_pos",
                new ValueMap()
@@ -661,7 +661,10 @@ public class MeteorStarscript {
    }
 
    private static Value posString(double x, double y, double z) {
-      return Value.string(String.format("X: %.0f Y: %.0f Z: %.0f", x, y, z));
+      double sx = meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedX(x);
+      double sy = meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedY(y);
+      double sz = meteordevelopment.meteorclient.systems.modules.render.FakeCoords.getSpoofedZ(z);
+      return Value.string(String.format("X: %.0f Y: %.0f Z: %.0f", sx, sy, sz));
    }
 
    private static Value crosshairType() {

@@ -438,9 +438,9 @@ public class WireframeEntityRenderer {
                lineColor
             );
             renderer.line(
-               offsetX + (double)pos1.x,
-               offsetY + (double)pos1.y,
-               offsetZ + (double)pos1.z,
+               offsetX + (double)pos4.x,
+               offsetY + (double)pos4.y,
+               offsetZ + (double)pos4.z,
                offsetX + (double)pos1.x,
                offsetY + (double)pos1.y,
                offsetZ + (double)pos1.z,

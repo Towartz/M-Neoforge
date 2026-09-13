@@ -33,7 +33,8 @@ public abstract class GameOptionsMixin {
          target = "Lnet/minecraft/client/option/GameOptions;allKeys:[Lnet/minecraft/client/option/KeyBinding;",
          opcode = 181,
          shift = Shift.AFTER
-      )}
+      )},
+      require = 0
    )
    private void onInitAfterKeysAll(Minecraft client, File optionsFile, CallbackInfo info) {
       this.keyMappings = KeyBinds.apply(this.keyMappings);

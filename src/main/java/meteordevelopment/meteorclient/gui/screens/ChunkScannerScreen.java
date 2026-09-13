@@ -151,7 +151,7 @@ public class ChunkScannerScreen extends WindowScreen {
             String btnText = targets.size() > 1 ? "Mine (All)" : "Mine";
             WButton mineClosestBtn = radarActions.add(this.theme.button(btnText)).widget();
             mineClosestBtn.action = () -> {
-               this.module.startMining(targets);
+               this.module.startMining(targets, closest.nearestPos);
                this.onClose();
             };
 
@@ -335,7 +335,7 @@ public class ChunkScannerScreen extends WindowScreen {
             String btnText = targets.size() > 1 ? "Mine (All)" : "Mine";
             WButton mineBtn = rowActions.add(this.theme.button(btnText)).widget();
             mineBtn.action = () -> {
-               this.module.startMining(targets);
+               this.module.startMining(targets, entry.nearestPos);
                this.onClose();
             };
 

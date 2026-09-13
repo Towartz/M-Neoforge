@@ -17,13 +17,25 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin({FogRenderer.class})
 public abstract class BackgroundRendererMixin {
    @Inject(
-      method = {"applyFog"},
-      at = {@At("TAIL")}
+      method = "setupFog",
+      at = @At("TAIL")
    )
-   private static void onApplyFog(Camera camera, FogMode fogType, float viewDistance, boolean thickFog, float tickDelta, CallbackInfo info) {
+   private static void onSetupFog(Camera camera, FogMode fogType, float viewDistance, boolean thickFog, float tickDelta, CallbackInfo info) {
       if ((Modules.get().get(NoRender.class).noFog() || Modules.get().isActive(Xray.class)) && fogType == FogMode.FOG_TERRAIN) {
          RenderSystem.setShaderFogStart(viewDistance * 4.0F);
          RenderSystem.setShaderFogEnd(viewDistance * 4.25F);
+      }
+   }
+
+   @Inject(
+      method = "getPriorityFogFunction",
+      at = @At("HEAD"),
+      cancellable = true,
+      require = 0
+   )
+   private static void onGetPriorityFogFunction(Entity entity, float tickDelta, CallbackInfoReturnable<Object> info) {
+      if (Modules.get().get(NoRender.class).noBlindness() || Modules.get().get(NoRender.class).noDarkness()) {
+         info.setReturnValue(null);
       }
    }
 }

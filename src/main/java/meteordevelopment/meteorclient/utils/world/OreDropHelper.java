@@ -60,6 +60,38 @@ public class OreDropHelper {
 
       // Amethyst
       addVanilla(Blocks.AMETHYST_CLUSTER, Items.AMETHYST_SHARD);
+      addVanilla(Blocks.LARGE_AMETHYST_BUD, Items.AMETHYST_SHARD);
+      addVanilla(Blocks.MEDIUM_AMETHYST_BUD, Items.AMETHYST_SHARD);
+      addVanilla(Blocks.SMALL_AMETHYST_BUD, Items.AMETHYST_SHARD);
+
+      // Gilded Blackstone
+      addVanilla(Blocks.GILDED_BLACKSTONE, Items.GOLD_NUGGET, Items.RAW_GOLD, Items.GOLD_INGOT, Items.BLACKSTONE);
+
+      // Glowstone & Sea Lantern
+      addVanilla(Blocks.GLOWSTONE, Items.GLOWSTONE_DUST);
+      addVanilla(Blocks.SEA_LANTERN, Items.PRISMARINE_CRYSTALS, Items.PRISMARINE_SHARD);
+
+      // Clay & Gravel
+      addVanilla(Blocks.CLAY, Items.CLAY_BALL);
+      addVanilla(Blocks.GRAVEL, Items.FLINT, Items.GRAVEL);
+
+      // Common target blocks
+      addVanilla(Blocks.MELON, Items.MELON_SLICE);
+      addVanilla(Blocks.BOOKSHELF, Items.BOOK);
+      addVanilla(Blocks.SNOW_BLOCK, Items.SNOWBALL);
+      addVanilla(Blocks.POWDER_SNOW, Items.SNOWBALL);
+      addVanilla(Blocks.COBWEB, Items.STRING);
+
+      // Raw metal blocks
+      addVanilla(Blocks.RAW_IRON_BLOCK, Items.RAW_IRON);
+      addVanilla(Blocks.RAW_COPPER_BLOCK, Items.RAW_COPPER);
+      addVanilla(Blocks.RAW_GOLD_BLOCK, Items.RAW_GOLD);
+
+      // Sculk blocks
+      addVanilla(Blocks.SCULK_CATALYST, Items.SCULK_CATALYST);
+      addVanilla(Blocks.SCULK_SHRIEKER, Items.SCULK_SHRIEKER);
+      addVanilla(Blocks.SCULK_SENSOR, Items.SCULK_SENSOR);
+      addVanilla(Blocks.CALIBRATED_SCULK_SENSOR, Items.CALIBRATED_SCULK_SENSOR);
    }
 
    private static void addVanilla(Block block, Item... items) {
@@ -101,27 +133,39 @@ public class OreDropHelper {
          String path = id.getPath().toLowerCase(Locale.ROOT);
          String base = ChunkScannerEngine.getBaseOrePath(path);
 
-         if (base.endsWith("_ore")) {
-            base = base.substring(0, base.length() - "_ore".length());
+         String stripped = base;
+         if (stripped.endsWith("_ore")) {
+            stripped = stripped.substring(0, stripped.length() - "_ore".length());
          }
-         if (base.startsWith("ore_")) {
-            base = base.substring("ore_".length());
+         if (stripped.startsWith("ore_")) {
+            stripped = stripped.substring("ore_".length());
+         }
+         if (stripped.endsWith("_block")) {
+            stripped = stripped.substring(0, stripped.length() - "_block".length());
+         }
+         if (stripped.startsWith("block_of_")) {
+            stripped = stripped.substring("block_of_".length());
          }
 
-         if (!base.isEmpty()) {
-            List<String> candidatePaths = List.of(
-               "raw_" + base,
-               base + "_raw",
-               base,
-               base + "_ingot",
-               base + "_gem",
-               base + "_crystal",
-               base + "_nugget",
-               base + "_dust",
-               base + "_chunk",
-               base + "_shard"
-            );
+         List<String> candidatePaths = new ArrayList<>();
+         for (String b : List.of(stripped, base)) {
+            if (!b.isEmpty()) {
+               candidatePaths.add("raw_" + b);
+               candidatePaths.add(b + "_raw");
+               candidatePaths.add(b);
+               candidatePaths.add(b + "_ingot");
+               candidatePaths.add(b + "_gem");
+               candidatePaths.add(b + "_crystal");
+               candidatePaths.add(b + "_nugget");
+               candidatePaths.add(b + "_dust");
+               candidatePaths.add(b + "_chunk");
+               candidatePaths.add(b + "_shard");
+               candidatePaths.add(b + "_clump");
+               candidatePaths.add(b + "_cluster");
+            }
+         }
 
+         if (!candidatePaths.isEmpty()) {
             for (Item item : BuiltInRegistries.ITEM) {
                ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(item);
                if (itemId == null || item == Items.AIR) continue;

@@ -256,6 +256,25 @@ public abstract class WorldRendererMixin {
       return Math.max(Modules.get().get(Fullbright.class).getLuminance(LightLayer.BLOCK), sky);
    }
 
+   @ModifyArg(
+      method = "renderEndSky",
+      at = @At(
+         value = "INVOKE",
+         target = "Lcom/mojang/blaze3d/vertex/VertexConsumer;setColor(I)Lcom/mojang/blaze3d/vertex/VertexConsumer;"
+      ),
+      require = 0
+   )
+   private int onRenderEndSkyColor(int original) {
+      Ambience ambience = Modules.get().get(Ambience.class);
+      if (ambience != null && ambience.isActive() && ambience.endSky.get() && ambience.customSkyColor.get()) {
+         Color customEndSkyColor = ambience.skyColor();
+         if (customEndSkyColor != null) {
+            return customEndSkyColor.getPacked();
+         }
+      }
+      return original;
+   }
+
    @Unique
    private ESP getESP() {
       if (this.esp == null) {
