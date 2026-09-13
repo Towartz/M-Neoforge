@@ -16,18 +16,13 @@ import org.spongepowered.asm.mixin.injection.At;
 @Mixin({AbstractSignEditScreen.class})
 public abstract class AbstractSignEditScreenMixin {
    @ModifyExpressionValue(
-      method = {"<init>"},
-      at = {@At(
+      method = "<init>(Lnet/minecraft/world/level/block/entity/SignBlockEntity;ZZLnet/minecraft/network/chat/Component;)V",
+      at = @At(
          value = "INVOKE",
          target = "Ljava/util/stream/IntStream;mapToObj(Ljava/util/function/IntFunction;)Ljava/util/stream/Stream;"
-      )}
+      )
    )
    private Stream<Component> modifyTranslatableText(Stream<Component> original) {
       return original.map(ExploitPreventer::sanitizeComponent);
-   }
-
-   @Unique
-   private Component modifyText(Component message) {
-      return ExploitPreventer.sanitizeComponent(message);
    }
 }

@@ -36,7 +36,9 @@ public abstract class HttpUtilMixin {
                     if (ep.alertOnExploit.get()) {
                         ep.warning("Blocked local SSRF resource pack exploit attempt: %s", url);
                     }
-                    listener.requestFinished(false);
+                    if (listener != null) {
+                        listener.requestFinished(false);
+                    }
                     throw new IllegalStateException("Blocked SSRF request to local address: " + url);
                 }
             }
