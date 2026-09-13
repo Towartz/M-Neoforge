@@ -50,7 +50,7 @@ public abstract class LivingEntityMixin extends Entity {
    }
 
    @Inject(
-      method = {"damage"},
+      method = {"hurt"},
       at = {@At("HEAD")}
    )
    private void onDamageHead(DamageSource source, float amount, CallbackInfoReturnable<Boolean> info) {
@@ -60,7 +60,7 @@ public abstract class LivingEntityMixin extends Entity {
    }
 
    @ModifyReturnValue(
-      method = {"canWalkOnFluid"},
+      method = {"canStandOnFluid"},
       at = {@At("RETURN")}
    )
    private boolean onCanWalkOnFluid(boolean original, FluidState fluidState) {
@@ -82,7 +82,14 @@ public abstract class LivingEntityMixin extends Entity {
       at = {@At("RETURN")}
    )
    private boolean onHasEffect(boolean original, Holder<MobEffect> effect) {
-      if ((Object)this != MeteorClient.mc.player || effect == null || effect.value() == null) {
+      if ((Object)this != MeteorClient.mc.player || effect == null) {
+         return original;
+      }
+      try {
+         if (!effect.isBound() || effect.value() == null) {
+            return original;
+         }
+      } catch (Throwable t) {
          return original;
       }
       NoStatusEffects module = meteor$cachedNoStatusEffects;
@@ -90,6 +97,10 @@ public abstract class LivingEntityMixin extends Entity {
          meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
       }
       if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
+         return false;
+      }
+      PotionSpoof potionSpoof = Modules.get() != null ? Modules.get().get(PotionSpoof.class) : null;
+      if (potionSpoof != null && potionSpoof.isActive() && potionSpoof.shouldBlock(effect.value())) {
          return false;
       }
       NoRender noRender = meteor$cachedNoRender;
@@ -112,7 +123,14 @@ public abstract class LivingEntityMixin extends Entity {
       at = {@At("RETURN")}
    )
    private MobEffectInstance onGetEffect(MobEffectInstance original, Holder<MobEffect> effect) {
-      if ((Object)this != MeteorClient.mc.player || effect == null || effect.value() == null) {
+      if ((Object)this != MeteorClient.mc.player || effect == null) {
+         return original;
+      }
+      try {
+         if (!effect.isBound() || effect.value() == null) {
+            return original;
+         }
+      } catch (Throwable t) {
          return original;
       }
       NoStatusEffects module = meteor$cachedNoStatusEffects;
@@ -120,6 +138,10 @@ public abstract class LivingEntityMixin extends Entity {
          meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
       }
       if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
+         return null;
+      }
+      PotionSpoof potionSpoof = Modules.get() != null ? Modules.get().get(PotionSpoof.class) : null;
+      if (potionSpoof != null && potionSpoof.isActive() && potionSpoof.shouldBlock(effect.value())) {
          return null;
       }
       NoRender noRender = meteor$cachedNoRender;
@@ -150,7 +172,7 @@ public abstract class LivingEntityMixin extends Entity {
    }
 
    @Inject(
-      method = {"onEquipStack"},
+      method = {"onEquipItem"},
       at = {@At("HEAD")},
       cancellable = true
    )
@@ -161,10 +183,10 @@ public abstract class LivingEntityMixin extends Entity {
    }
 
    @ModifyArg(
-      method = {"swingHand(Lnet/minecraft/util/Hand;)V"},
+      method = {"swing(Lnet/minecraft/world/InteractionHand;)V"},
       at = @At(
          value = "INVOKE",
-         target = "Lnet/minecraft/entity/LivingEntity;swingHand(Lnet/minecraft/util/Hand;Z)V"
+         target = "Lnet/minecraft/world/entity/LivingEntity;swing(Lnet/minecraft/world/InteractionHand;Z)V"
       )
    )
    private InteractionHand setHand(InteractionHand hand) {
@@ -181,7 +203,7 @@ public abstract class LivingEntityMixin extends Entity {
    }
 
    @ModifyConstant(
-      method = {"getHandSwingDuration"},
+      method = {"getCurrentSwingDuration"},
       constant = {@Constant(
          intValue = 6
       )}
@@ -219,19 +241,11 @@ public abstract class LivingEntityMixin extends Entity {
       this.previousElytra = elytra;
    }
 
-   @ModifyReturnValue(
-      method = {"hasStatusEffect"},
-      at = {@At("RETURN")}
-   )
-   private boolean hasStatusEffect(boolean original, Holder<MobEffect> effect) {
-      return Modules.get().get(PotionSpoof.class).shouldBlock((MobEffect)effect.value()) ? false : original;
-   }
-
    @ModifyExpressionValue(
-      method = {"jump"},
+      method = {"jumpFromGround"},
       at = {@At(
          value = "INVOKE",
-         target = "Lnet/minecraft/entity/LivingEntity;getYaw()F"
+         target = "Lnet/minecraft/world/entity/LivingEntity;getYRot()F"
       )}
    )
    private float modifyGetYaw(float original) {
@@ -259,10 +273,10 @@ public abstract class LivingEntityMixin extends Entity {
    }
 
    @ModifyExpressionValue(
-      method = {"jump"},
+      method = {"jumpFromGround"},
       at = {@At(
          value = "INVOKE",
-         target = "Lnet/minecraft/entity/LivingEntity;isSprinting()Z"
+         target = "Lnet/minecraft/world/entity/LivingEntity;isSprinting()Z"
       )}
    )
    private boolean modifyIsSprinting(boolean original) {

@@ -3,6 +3,7 @@ package meteordevelopment.meteorclient.mixin;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.player.PotionSaver;
 import meteordevelopment.meteorclient.utils.Utils;
+import net.minecraft.core.Holder;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,8 +24,16 @@ public abstract class StatusEffectInstanceMixin {
    )
    private void tick(CallbackInfoReturnable<Integer> info) {
       if (Utils.canUpdate()) {
-         if (Modules.get().get(PotionSaver.class).shouldFreeze((MobEffect)((MobEffectInstance)(Object)this).getEffect().value())) {
-            info.setReturnValue(this.duration);
+         Holder<MobEffect> effect = ((MobEffectInstance)(Object)this).getEffect();
+         if (effect != null) {
+            try {
+               if (effect.isBound() && effect.value() != null) {
+                  if (Modules.get().get(PotionSaver.class).shouldFreeze(effect.value())) {
+                     info.setReturnValue(this.duration);
+                  }
+               }
+            } catch (Throwable ignored) {
+            }
          }
       }
    }
