@@ -71,6 +71,7 @@ import meteordevelopment.meteorclient.systems.modules.misc.BookBot;
 import meteordevelopment.meteorclient.systems.modules.misc.BundleDupe;
 import meteordevelopment.meteorclient.systems.modules.misc.ContainerDesync;
 import meteordevelopment.meteorclient.systems.modules.misc.DiscordPresence;
+import meteordevelopment.meteorclient.systems.modules.misc.ExploitPreventer;
 import meteordevelopment.meteorclient.systems.modules.misc.InventoryTweaks;
 import meteordevelopment.meteorclient.systems.modules.misc.NameProtect;
 import meteordevelopment.meteorclient.systems.modules.misc.Notebot;
@@ -823,6 +824,7 @@ public class Modules extends System<Modules> {
       this.add(new PacketCanceller());
       this.add(new ServerSpoof());
       this.add(new SoundBlocker());
+      this.add(new ExploitPreventer());
       this.add(new BundleDupe());
       this.add(new ContainerDesync());
       this.add(new PingSpoof());

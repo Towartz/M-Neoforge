@@ -14,6 +14,7 @@ import meteordevelopment.meteorclient.settings.StringListSetting;
 import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.text.RunnableClickEvent;
 import meteordevelopment.meteorclient.utils.network.NeoForgeNetwork;
@@ -111,6 +112,17 @@ public class ServerSpoof extends Module {
    private void onPacketReceive(PacketEvent.Receive event) {
       if (this.isActive() && this.resourcePack.get()) {
          if (event.packet instanceof ClientboundResourcePackPushPacket packet) {
+            if (ExploitPreventer.isLocalDownloadBlocked(packet.url())) {
+               ExploitPreventer ep = Modules.get() != null ? Modules.get().get(ExploitPreventer.class) : null;
+               if (ep != null && ep.isActive() && ep.antiSsrf.get()) {
+                  event.cancel();
+                  if (ep.alertOnExploit.get()) {
+                     this.warning("Blocked local SSRF resource pack exploit attempt: %s", packet.url());
+                  }
+                  return;
+               }
+            }
+
             event.cancel();
             event.connection.send(new ServerboundResourcePackPacket(packet.id(), Action.ACCEPTED));
             event.connection.send(new ServerboundResourcePackPacket(packet.id(), Action.DOWNLOADED));
@@ -130,6 +142,8 @@ public class ServerSpoof extends Module {
                URL url = getParsedResourcePackUrl(packet.url());
                if (url == null) {
                   this.error("Invalid resource pack URL: " + packet.url(), new Object[0]);
+               } else if (ExploitPreventer.isLocalDownloadBlocked(url)) {
+                  this.error("Blocked download of local SSRF resource pack: " + packet.url());
                } else {
                   this.silentAcceptResourcePack = true;
                   this.mc.getDownloadedPackSource().pushPack(packet.id(), url, packet.hash());

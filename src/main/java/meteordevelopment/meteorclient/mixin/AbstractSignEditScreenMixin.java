@@ -8,6 +8,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.contents.KeybindContents;
 import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.network.chat.contents.PlainTextContents.LiteralContents;
+import meteordevelopment.meteorclient.systems.modules.misc.ExploitPreventer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -22,32 +23,11 @@ public abstract class AbstractSignEditScreenMixin {
       )}
    )
    private Stream<Component> modifyTranslatableText(Stream<Component> original) {
-      return original.map(this::modifyText);
+      return original.map(ExploitPreventer::sanitizeComponent);
    }
 
    @Unique
    private Component modifyText(Component message) {
-      MutableComponent modified = MutableComponent.create(message.getContents());
-      if (message.getContents() instanceof KeybindContents content) {
-         String key = content.getName();
-         if (key.contains("utility") || key.contains("meteor-client")) {
-            modified = MutableComponent.create(new LiteralContents(key));
-         }
-      }
-
-      if (message.getContents() instanceof TranslatableContents contentx) {
-         String key = contentx.getKey();
-         if (key.contains("utility") || key.contains("meteor-client")) {
-            modified = MutableComponent.create(new LiteralContents(key));
-         }
-      }
-
-      modified.setStyle(message.getStyle());
-
-      for (Component sibling : message.getSiblings()) {
-         modified.append(this.modifyText(sibling));
-      }
-
-      return modified;
+      return ExploitPreventer.sanitizeComponent(message);
    }
 }
