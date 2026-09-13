@@ -3,7 +3,7 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.146'
 }
 
-version = '0.5.8'
+version = '0.6.0'
 group = 'meteordevelopment'
 
 base {
@@ -83,10 +83,10 @@ tasks.withType(JavaCompile).configureEach {
 tasks.named('jar') {
     from {
         configurations.runtimeClasspath.filter {
-            (it.name.startsWith('reflections-') || it.name.startsWith('xz-') || it.parentFile?.name == 'mcp') && !it.name.startsWith('kotlin-stdlib')
+            (it.name.startsWith('reflections-') || it.name.startsWith('xz-') || it.parentFile?.name == 'mcp') && !it.name.startsWith('kotlin-stdlib') && !it.name.startsWith('reactive-streams')
         }.collect {
             zipTree(it).matching {
-                exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/**', 'kotlin/**', 'kotlin-stdlib*'
+                exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/**', 'kotlin/**', 'kotlin-stdlib*', 'org/reactivestreams/**'
             }
         }
     } {

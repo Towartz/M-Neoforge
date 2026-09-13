@@ -24,6 +24,7 @@ import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.Version;
 import meteordevelopment.meteorclient.utils.misc.input.KeyAction;
 import meteordevelopment.meteorclient.utils.misc.input.KeyBinds;
+import meteordevelopment.meteorclient.utils.network.NeoForgeNetwork;
 import meteordevelopment.meteorclient.utils.network.OnlinePlayers;
 import meteordevelopment.orbit.EventBus;
 import meteordevelopment.orbit.EventHandler;
@@ -41,7 +42,7 @@ import org.slf4j.LoggerFactory;
 public class MeteorClient {
    public static final String MOD_ID = "utility";
    public static final String NAME = "Utility+";
-   public static final Version VERSION = new Version("0.5.8");
+   public static final Version VERSION = new Version("0.6.0");
    public static final String DEV_BUILD = "";
    public static MeteorClient INSTANCE;
    public static MeteorAddon ADDON;
@@ -56,9 +57,15 @@ public class MeteorClient {
    public MeteorClient(net.neoforged.bus.api.IEventBus modEventBus) {
       INSTANCE = this;
       modEventBus.addListener(this::onClientSetup);
+      modEventBus.addListener(this::onRegisterKeyMappings);
+      modEventBus.addListener(NeoForgeNetwork::onRegisterPayloadHandlers);
    }
 
    public void onClientSetup(FMLClientSetupEvent event) {
+   }
+
+   public void onRegisterKeyMappings(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
+      KeyBinds.register(event);
    }
 
    public void onInitializeClient() {

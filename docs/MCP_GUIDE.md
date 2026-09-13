@@ -39,7 +39,7 @@ To make connection effortless for desktop AI tools that use standard `stdio` com
 
 ## 2. 60-Second Quick Start
 
-1. **Launch Minecraft** with the Utility+ client installed (`utility-neoforge-1.21.1-0.5.8.jar`).
+1. **Launch Minecraft** with the Utility+ client installed (`utility-neoforge-1.21.1-0.6.0.jar`).
 2. Join any singleplayer world or multiplayer server.
 3. Open a terminal in the project directory and test the bridge:
    ```bash

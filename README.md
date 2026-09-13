@@ -282,7 +282,7 @@ Utility+ includes a fast, native Starscript evaluator used throughout HUD text e
 | Starscript Expression | Output Type | Description |
 |---|---|---|
 | `{utility.name}` | String | Mod display name (`Utility+`). |
-| `{utility.version}` | String | Mod version string (`0.5.8`). |
+| `{utility.version}` | String | Mod version string (`0.6.0`). |
 | `{utility.modules}` | Number | Total registered modules count. |
 | `{utility.active_modules}` | Number | Currently enabled modules count. |
 | `{utility.is_module_active("id")}` | Boolean | Checks if named module is currently active. |
@@ -359,7 +359,7 @@ For the complete 339-line guide and tool calling recipes, see **[docs/MCP_GUIDE.
 - **Mod Loader**: **NeoForge** `>= 21.1.249`.
 
 ### Installation Steps
-1. Download `utility-neoforge-1.21.1-0.5.8.jar` from the [Latest Release](https://github.com/Towartz/M-Neoforge/releases/latest).
+1. Download `utility-neoforge-1.21.1-0.6.0.jar` from the [Latest Release](https://github.com/Towartz/M-Neoforge/releases/latest).
 2. Place the JAR inside your Minecraft profile `.minecraft/mods` directory.
 3. Launch Minecraft using the NeoForge profile.
 4. Open the in-game GUI by pressing `Right Shift` (configurable in Options -> Controls -> Key Binds).
@@ -388,7 +388,7 @@ cd M-Neoforge
 
 Upon completion, the compiled, shaded mod artifact will be available at:
 ```text
-build/libs/utility-neoforge-1.21.1-0.5.8.jar
+build/libs/utility-neoforge-1.21.1-0.6.0.jar
 ```
 
 ---

@@ -111,7 +111,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             RELEASE_TAG="${GITHUB_REF#refs/tags/}"
           else
-            RELEASE_TAG="v0.5.8"
+            RELEASE_TAG="v0.6.0"
           fi
           RELEASE_TITLE="Utility+ NeoForge 1.21.1 ($RELEASE_TAG)"
 

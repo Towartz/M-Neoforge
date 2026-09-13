@@ -4,7 +4,7 @@ license = "GPL-3.0"
 
 [[mods]]
 modId = "utility"
-version = "0.5.8"
+version = "0.6.0"
 displayName = "Utility+"
 description = "High-performance utility client for Minecraft."
 authors = "MineGame159, squidoodly, seasnail, Towartz"
