@@ -7,6 +7,7 @@ import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.config.Config;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -49,10 +50,10 @@ public class ChestSwap extends Module {
    }
 
    public void swap() {
-      Item currentItem = this.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem();
-      if (currentItem == Items.ELYTRA) {
+      ItemStack currentStack = this.mc.player.getItemBySlot(EquipmentSlot.CHEST);
+      if (NeoForgeUtils.canElytraFly(currentStack, this.mc.player)) {
          this.equipChestplate();
-      } else if (currentItem instanceof ArmorItem && ((ArmorItem)currentItem).getEquipmentSlot() == EquipmentSlot.CHEST) {
+      } else if (currentStack.getItem() instanceof ArmorItem && ((ArmorItem)currentStack.getItem()).getEquipmentSlot() == EquipmentSlot.CHEST) {
          this.equipElytra();
       } else if (!this.equipChestplate()) {
          this.equipElytra();
@@ -109,8 +110,8 @@ public class ChestSwap extends Module {
 
    private void equipElytra() {
       for (int i = 0; i < this.mc.player.getInventory().items.size(); i++) {
-         Item item = ((ItemStack)this.mc.player.getInventory().items.get(i)).getItem();
-         if (item == Items.ELYTRA) {
+         ItemStack stack = (ItemStack)this.mc.player.getInventory().items.get(i);
+         if (NeoForgeUtils.canElytraFly(stack, this.mc.player)) {
             this.equip(i);
             break;
          }

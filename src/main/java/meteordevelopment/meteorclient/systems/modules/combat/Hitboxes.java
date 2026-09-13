@@ -48,6 +48,6 @@ public class Hitboxes extends Module {
    private boolean testWeapon() {
       return !this.onlyOnWeapon.get()
          ? true
-         : InvUtils.testInHands(itemStack -> itemStack.getItem() instanceof SwordItem || itemStack.getItem() instanceof AxeItem);
+         : InvUtils.testInHands(meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils::isWeapon);
    }
 }

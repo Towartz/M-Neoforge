@@ -21,6 +21,7 @@ import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.modes.V
 import meteordevelopment.meteorclient.systems.modules.player.ChestSwap;
 import meteordevelopment.meteorclient.systems.modules.player.Rotation;
 import meteordevelopment.meteorclient.systems.modules.render.Freecam;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
@@ -367,7 +368,7 @@ public class ElytraFly extends Module {
    public void onActivate() {
       this.currentMode.onActivate();
       if ((this.chestSwap.get() == ElytraFly.ChestSwapMode.Always || this.chestSwap.get() == ElytraFly.ChestSwapMode.WaitForGround)
-         && this.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() != Items.ELYTRA
+         && !NeoForgeUtils.canElytraFly(this.mc.player.getItemBySlot(EquipmentSlot.CHEST), this.mc.player)
          && this.isActive()) {
          Modules.get().get(ChestSwap.class).swap();
       }
@@ -379,7 +380,7 @@ public class ElytraFly extends Module {
          this.mc.options.keyUp.setDown(false);
       }
 
-      if (this.chestSwap.get() == ElytraFly.ChestSwapMode.Always && this.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
+      if (this.chestSwap.get() == ElytraFly.ChestSwapMode.Always && NeoForgeUtils.canElytraFly(this.mc.player.getItemBySlot(EquipmentSlot.CHEST), this.mc.player)) {
          Modules.get().get(ChestSwap.class).swap();
       } else if (this.chestSwap.get() == ElytraFly.ChestSwapMode.WaitForGround) {
          this.enableGroundListener();
@@ -562,7 +563,7 @@ public class ElytraFly extends Module {
       private void chestSwapGroundListener(PlayerMoveEvent event) {
          if (ElytraFly.this.mc.player != null
             && ElytraFly.this.mc.player.onGround()
-            && ElytraFly.this.mc.player.getItemBySlot(EquipmentSlot.CHEST).getItem() == Items.ELYTRA) {
+            && NeoForgeUtils.canElytraFly(ElytraFly.this.mc.player.getItemBySlot(EquipmentSlot.CHEST), ElytraFly.this.mc.player)) {
             Modules.get().get(ChestSwap.class).swap();
             ElytraFly.this.disableGroundListener();
          }

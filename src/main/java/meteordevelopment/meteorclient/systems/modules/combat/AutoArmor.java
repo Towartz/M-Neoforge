@@ -18,6 +18,7 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.player.ChestSwap;
 import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.Holder;
@@ -227,7 +228,7 @@ public class AutoArmor extends Module {
       public void calculate() {
          if (!AutoArmor.this.cannotSwap()) {
             ItemStack itemStack = AutoArmor.this.mc.player.getInventory().getArmor(this.id);
-            if ((AutoArmor.this.ignoreElytra.get() || Modules.get().isActive(ChestSwap.class)) && itemStack.getItem() == Items.ELYTRA) {
+            if ((AutoArmor.this.ignoreElytra.get() || Modules.get().isActive(ChestSwap.class)) && NeoForgeUtils.canElytraFly(itemStack, AutoArmor.this.mc.player)) {
                this.score = Integer.MAX_VALUE;
             } else {
                Utils.getEnchantments(itemStack, AutoArmor.this.enchantments);

@@ -47,14 +47,22 @@ public class AddonManager {
       mcpAddon.color.parse("100,150,255");
       ADDONS.add(mcpAddon);
 
-      for (MeteorAddon addon : ServiceLoader.load(MeteorAddon.class)) {
-         if (addon.name == null) {
-            addon.name = addon.getClass().getSimpleName();
-         }
-         if (addon.authors == null) {
-            addon.authors = new String[]{"Unknown"};
-         }
-         ADDONS.add(addon);
+      for (MeteorAddon addon : ServiceLoader.load(MeteorAddon.class, Thread.currentThread().getContextClassLoader())) {
+         registerAddon(addon);
       }
+   }
+
+   public static void registerAddon(MeteorAddon addon) {
+      if (addon == null) return;
+      for (MeteorAddon a : ADDONS) {
+         if (a.getClass().equals(addon.getClass())) return;
+      }
+      if (addon.name == null) {
+         addon.name = addon.getClass().getSimpleName();
+      }
+      if (addon.authors == null) {
+         addon.authors = new String[]{"Unknown"};
+      }
+      ADDONS.add(addon);
    }
 }

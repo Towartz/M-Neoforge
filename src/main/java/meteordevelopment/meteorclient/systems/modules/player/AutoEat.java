@@ -21,11 +21,13 @@ import meteordevelopment.meteorclient.systems.modules.combat.BedAura;
 import meteordevelopment.meteorclient.systems.modules.combat.CrystalAura;
 import meteordevelopment.meteorclient.systems.modules.combat.KillAura;
 import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 public class AutoEat extends Module {
@@ -108,7 +110,7 @@ public class AutoEat extends Module {
       if (!Modules.get().get(AutoGap.class).isEating()) {
          if (this.eating) {
             if (this.shouldEat()) {
-               if (this.mc.player.getInventory().getItem(this.slot).get(DataComponents.FOOD) != null) {
+               if (NeoForgeUtils.getFoodProperties(this.mc.player.getInventory().getItem(this.slot), this.mc.player) != null) {
                   int slot = this.findSlot();
                   if (slot == -1) {
                      this.stopEating();
@@ -207,21 +209,22 @@ public class AutoEat extends Module {
       int bestHunger = -1;
 
       for (int i = 0; i < 9; i++) {
-         Item item = this.mc.player.getInventory().getItem(i).getItem();
-         FoodProperties foodComponent = (FoodProperties)item.components().get(DataComponents.FOOD);
+         ItemStack stack = this.mc.player.getInventory().getItem(i);
+         FoodProperties foodComponent = NeoForgeUtils.getFoodProperties(stack, this.mc.player);
          if (foodComponent != null) {
             int hunger = foodComponent.nutrition();
-            if (hunger > bestHunger && !this.blacklist.get().contains(item)) {
+            if (hunger > bestHunger && !this.blacklist.get().contains(stack.getItem())) {
                slot = i;
                bestHunger = hunger;
             }
          }
       }
 
-      Item offHandItem = this.mc.player.getOffhandItem().getItem();
-      if (offHandItem.components().get(DataComponents.FOOD) != null
-         && !this.blacklist.get().contains(offHandItem)
-         && ((FoodProperties)offHandItem.components().get(DataComponents.FOOD)).nutrition() > bestHunger) {
+      ItemStack offHandStack = this.mc.player.getOffhandItem();
+      FoodProperties offHandFood = NeoForgeUtils.getFoodProperties(offHandStack, this.mc.player);
+      if (offHandFood != null
+         && !this.blacklist.get().contains(offHandStack.getItem())
+         && offHandFood.nutrition() > bestHunger) {
          slot = 45;
       }
 

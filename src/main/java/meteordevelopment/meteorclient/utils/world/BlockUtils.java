@@ -388,16 +388,30 @@ public class BlockUtils {
    }
 
    public static double getBreakDelta(int slot, BlockState state) {
-      float hardness = state.getDestroySpeed(null, null);
-      return hardness == -1.0F
-         ? 0.0
-         : getBlockBreakingSpeed(slot, state)
-            / (double)hardness
-            / (double)(
-               state.requiresCorrectToolForDrops() && !((ItemStack)MeteorClient.mc.player.getInventory().items.get(slot)).isCorrectToolForDrops(state)
-                  ? 100
-                  : 30
-            );
+      return getBreakDelta(slot, state, null);
+   }
+
+   public static double getBreakDelta(int slot, BlockState state, BlockPos pos) {
+      float hardness;
+      try {
+         hardness = (MeteorClient.mc.level != null && pos != null)
+            ? state.getDestroySpeed(MeteorClient.mc.level, pos)
+            : state.getDestroySpeed(null, null);
+      } catch (Throwable ignored) {
+         try {
+            hardness = state.getBlock().defaultDestroyTime();
+         } catch (Throwable t) {
+            hardness = 1.0F;
+         }
+      }
+      if (hardness == -1.0F) {
+         return 0.0;
+      }
+      ItemStack stack = (ItemStack)MeteorClient.mc.player.getInventory().items.get(slot);
+      boolean correctTool = !state.requiresCorrectToolForDrops() || stack.isCorrectToolForDrops(state);
+      return getBlockBreakingSpeed(slot, state)
+         / (double)hardness
+         / (double)(!correctTool ? 100 : 30);
    }
 
    private static double getBlockBreakingSpeed(int slot, BlockState block) {

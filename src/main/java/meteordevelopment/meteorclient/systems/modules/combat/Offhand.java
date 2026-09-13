@@ -14,11 +14,13 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.misc.input.KeyAction;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.AxeItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.SwordItem;
 
@@ -166,9 +168,10 @@ public class Offhand extends Module {
       this.ticks++;
       AutoTotem autoTotem = Modules.get().get(AutoTotem.class);
       this.currentItem = this.preferreditem.get();
+      ItemStack mainHand = this.mc.player.getMainHandItem();
       if (this.rightgapple.get()) {
          if (!this.locked) {
-            if (this.SwordGap.get() && this.mc.player.getMainHandItem().getItem() instanceof SwordItem && this.isClicking) {
+            if (this.SwordGap.get() && NeoForgeUtils.isSword(mainHand) && this.isClicking) {
                this.currentItem = Offhand.Item.EGap;
             }
 
@@ -176,23 +179,30 @@ public class Offhand extends Module {
                this.currentItem = Offhand.Item.EGap;
             }
          }
-      } else if ((this.mc.player.getMainHandItem().getItem() instanceof SwordItem || this.mc.player.getMainHandItem().getItem() instanceof AxeItem)
-         && this.alwaysSwordGap.get()) {
+      } else if (NeoForgeUtils.isWeapon(mainHand) && this.alwaysSwordGap.get()) {
          this.currentItem = Offhand.Item.EGap;
       } else if (this.potionClick.get()) {
-         if (!this.locked && this.mc.player.getMainHandItem().getItem() instanceof SwordItem && this.isClicking) {
+         if (!this.locked && NeoForgeUtils.isSword(mainHand) && this.isClicking) {
             this.currentItem = Offhand.Item.Potion;
          }
-      } else if ((this.mc.player.getMainHandItem().getItem() instanceof SwordItem || this.mc.player.getMainHandItem().getItem() instanceof AxeItem)
-         && this.alwaysPot.get()) {
+      } else if (NeoForgeUtils.isWeapon(mainHand) && this.alwaysPot.get()) {
          this.currentItem = Offhand.Item.Potion;
       } else {
          this.currentItem = this.preferreditem.get();
       }
 
-      if (this.mc.player.getOffhandItem().getItem() != this.currentItem.item && this.ticks >= this.delayTicks.get()) {
+      boolean isMatching = this.currentItem == Offhand.Item.Shield
+         ? NeoForgeUtils.isShield(this.mc.player.getOffhandItem())
+         : this.mc.player.getOffhandItem().getItem() == this.currentItem.item;
+
+      if (!isMatching && this.ticks >= this.delayTicks.get()) {
          if (!this.locked) {
-            FindItemResult item = InvUtils.find(itemStack -> itemStack.getItem() == this.currentItem.item, this.hotbar.get() ? 0 : 9, 35);
+            FindItemResult item = InvUtils.find(itemStack -> {
+               if (this.currentItem == Offhand.Item.Shield) {
+                  return NeoForgeUtils.isShield(itemStack);
+               }
+               return itemStack.getItem() == this.currentItem.item;
+            }, this.hotbar.get() ? 0 : 9, 35);
             if (!item.found()) {
                if (!this.sentMessage) {
                   this.warning("Chosen item not found.", new Object[0]);

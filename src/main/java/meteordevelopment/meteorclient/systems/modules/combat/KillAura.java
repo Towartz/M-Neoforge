@@ -20,6 +20,7 @@ import meteordevelopment.meteorclient.systems.friends.Friends;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.meteorclient.utils.entity.EntityUtils;
 import meteordevelopment.meteorclient.utils.entity.SortPriority;
 import meteordevelopment.meteorclient.utils.entity.Target;
@@ -206,13 +207,11 @@ public class KillAura extends Module {
             .sliderMax(10)
             .build()
       );
-   private static final Predicate<ItemStack> PRED_SWORD = stack -> stack.getItem() instanceof SwordItem;
-   private static final Predicate<ItemStack> PRED_AXE = stack -> stack.getItem() instanceof AxeItem;
-   private static final Predicate<ItemStack> PRED_MACE = stack -> stack.getItem() instanceof MaceItem;
+   private static final Predicate<ItemStack> PRED_SWORD = stack -> NeoForgeUtils.isSword(stack);
+   private static final Predicate<ItemStack> PRED_AXE = stack -> NeoForgeUtils.isAxe(stack);
+   private static final Predicate<ItemStack> PRED_MACE = stack -> NeoForgeUtils.isMace(stack);
    private static final Predicate<ItemStack> PRED_TRIDENT = stack -> stack.getItem() instanceof TridentItem;
-   private static final Predicate<ItemStack> PRED_ALL_WEAPONS = stack -> stack.getItem() instanceof AxeItem
-      || stack.getItem() instanceof SwordItem
-      || stack.getItem() instanceof MaceItem
+   private static final Predicate<ItemStack> PRED_ALL_WEAPONS = stack -> NeoForgeUtils.isWeapon(stack)
       || stack.getItem() instanceof TridentItem;
    private static final Predicate<ItemStack> PRED_ANY = stack -> true;
 
@@ -524,18 +523,17 @@ public class KillAura extends Module {
    }
 
    private boolean itemInHand() {
+      ItemStack mainHand = this.mc.player.getMainHandItem();
       if (this.shouldShieldBreak()) {
-         return this.mc.player.getMainHandItem().getItem() instanceof AxeItem;
+         return NeoForgeUtils.isAxe(mainHand);
       } else {
          return switch ((KillAura.Weapon)this.weapon.get()) {
-            case Sword -> this.mc.player.getMainHandItem().getItem() instanceof SwordItem;
-            case Axe -> this.mc.player.getMainHandItem().getItem() instanceof AxeItem;
-            case Mace -> this.mc.player.getMainHandItem().getItem() instanceof MaceItem;
-            case Trident -> this.mc.player.getMainHandItem().getItem() instanceof TridentItem;
-            case All -> this.mc.player.getMainHandItem().getItem() instanceof AxeItem
-            || this.mc.player.getMainHandItem().getItem() instanceof SwordItem
-            || this.mc.player.getMainHandItem().getItem() instanceof MaceItem
-            || this.mc.player.getMainHandItem().getItem() instanceof TridentItem;
+            case Sword -> NeoForgeUtils.isSword(mainHand);
+            case Axe -> NeoForgeUtils.isAxe(mainHand);
+            case Mace -> NeoForgeUtils.isMace(mainHand);
+            case Trident -> mainHand.getItem() instanceof TridentItem;
+            case All -> NeoForgeUtils.isWeapon(mainHand)
+            || mainHand.getItem() instanceof TridentItem;
             default -> true;
          };
       }

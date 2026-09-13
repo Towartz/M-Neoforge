@@ -13,7 +13,16 @@ public class KeyBinds {
    private KeyBinds() {
    }
 
+   public static void register(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
+      event.register(OPEN_GUI);
+      event.register(OPEN_COMMANDS);
+   }
+
    public static KeyMapping[] apply(KeyMapping[] binds) {
+      if (binds == null) return binds;
+      for (KeyMapping k : binds) {
+         if (k == OPEN_GUI) return binds;
+      }
       Map<String, Integer> categories = KeyBindingAccessor.getCategoryOrderMap();
       int highest = 0;
 

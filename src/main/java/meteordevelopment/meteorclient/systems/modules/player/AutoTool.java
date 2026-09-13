@@ -18,6 +18,7 @@ import meteordevelopment.meteorclient.systems.modules.combat.AutoWeapon;
 import meteordevelopment.meteorclient.systems.modules.render.Xray;
 import meteordevelopment.meteorclient.systems.modules.world.InfinityMiner;
 import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
@@ -273,10 +274,10 @@ public class AutoTool extends Module {
       if (good.test(itemStack) && isTool(itemStack)) {
          if (!itemStack.isCorrectToolForDrops(state)
             && (
-               !(itemStack.getItem() instanceof SwordItem)
+               !NeoForgeUtils.isSword(itemStack)
                   || !(state.getBlock() instanceof BambooStalkBlock) && !(state.getBlock() instanceof BambooSaplingBlock)
             )
-            && (!(itemStack.getItem() instanceof ShearsItem) || !(state.getBlock() instanceof LeavesBlock))
+            && (!NeoForgeUtils.isShears(itemStack) || !(state.getBlock() instanceof LeavesBlock))
             && !state.is(BlockTags.WOOL)) {
             return -1.0;
          } else if (silkTouchEnderChest && state.getBlock() == Blocks.ENDER_CHEST && !Utils.hasEnchantments(itemStack, Enchantments.SILK_TOUCH)) {
@@ -297,9 +298,11 @@ public class AutoTool extends Module {
                score += (double)Utils.getEnchantmentLevel(itemStack, Enchantments.SILK_TOUCH);
             }
 
-            if (itemStack.getItem() instanceof SwordItem item
+            if (NeoForgeUtils.isSword(itemStack)
                && (state.getBlock() instanceof BambooStalkBlock || state.getBlock() instanceof BambooSaplingBlock)) {
-               score += (double)(9000.0F + ((Tool)item.components().get(DataComponents.TOOL)).getMiningSpeed(state) * 1000.0F);
+               Tool tool = itemStack.get(DataComponents.TOOL);
+               float speed = tool != null ? tool.getMiningSpeed(state) : itemStack.getDestroySpeed(state);
+               score += (double)(9000.0F + speed * 1000.0F);
             }
 
             return score;
@@ -310,11 +313,11 @@ public class AutoTool extends Module {
    }
 
    public static boolean isTool(Item item) {
-      return item instanceof TieredItem || item instanceof ShearsItem;
+      return NeoForgeUtils.isTool(item);
    }
 
    public static boolean isTool(ItemStack itemStack) {
-      return isTool(itemStack.getItem());
+      return NeoForgeUtils.isTool(itemStack);
    }
 
    private static boolean isFortunable(Block block) {

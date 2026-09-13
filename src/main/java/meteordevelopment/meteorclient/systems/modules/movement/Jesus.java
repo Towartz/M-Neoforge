@@ -20,6 +20,7 @@ import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.entity.EntityUtils;
+import meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos.MutableBlockPos;
 import net.minecraft.network.protocol.Packet;
@@ -331,7 +332,7 @@ public class Jesus extends Module {
          .collect(Collectors.toCollection(ArrayList::new))) {
          this.blockPos.set(Mth.lerp(0.5, bb.minX, bb.maxX), Mth.lerp(0.5, bb.minY, bb.maxY), Mth.lerp(0.5, bb.minZ, bb.maxZ));
          BlockState blockState = this.mc.level.getBlockState(this.blockPos);
-         if (blockState.getBlock() == Blocks.WATER | blockState.getFluidState().getType() == Fluids.WATER || blockState.getBlock() == Blocks.LAVA) {
+         if (NeoForgeUtils.isFluid(blockState) || blockState.getBlock() == Blocks.WATER || blockState.getBlock() == Blocks.LAVA) {
             foundLiquid = true;
          } else if (!blockState.isAir()) {
             foundSolid = true;

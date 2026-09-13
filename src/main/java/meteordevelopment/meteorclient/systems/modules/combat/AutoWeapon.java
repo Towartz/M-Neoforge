@@ -230,19 +230,19 @@ public class AutoWeapon extends Module {
          ItemStack stack = this.mc.player.getInventory().getItem(i);
          if (!this.isUsable(stack)) continue;
 
-         if (stack.getItem() instanceof SwordItem) {
+         if (meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils.isSword(stack)) {
             double dmg = (double)DamageUtils.getAttackDamage(this.mc.player, target, stack);
             if (dmg > damageS) {
                damageS = dmg;
                slotS = i;
             }
-         } else if (stack.getItem() instanceof AxeItem) {
+         } else if (meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils.isAxe(stack)) {
             double dmg = (double)DamageUtils.getAttackDamage(this.mc.player, target, stack);
             if (dmg > damageA) {
                damageA = dmg;
                slotA = i;
             }
-         } else if (stack.getItem() instanceof MaceItem) {
+         } else if (meteordevelopment.meteorclient.utils.neoforge.NeoForgeUtils.isMace(stack)) {
             double dmg = (double)DamageUtils.getAttackDamage(this.mc.player, target, stack);
             if (dmg > damageM) {
                damageM = dmg;
