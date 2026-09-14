@@ -60,6 +60,7 @@ public class AutoCraftScreen extends WindowTabScreen {
    private String filterText = "";
    private Item selectedItem = null;
    private RecipeHolder<CraftingRecipe> selectedRecipe = null;
+   private int recipeIndex = 0;
    private int craftQuantity = 1;
 
    private WTable itemTable;
@@ -186,6 +187,7 @@ public class AutoCraftScreen extends WindowTabScreen {
          selectBtn.action = () -> {
             this.selectedItem = item;
             this.selectedRecipe = CraftRecipeHelper.findBestRecipe(item);
+            this.recipeIndex = 0;
             updateDetails();
          };
 
@@ -250,9 +252,45 @@ public class AutoCraftScreen extends WindowTabScreen {
       titleRow.add(this.theme.label(this.selectedItem.getDescription().getString(), true));
       titleRow.add(this.theme.label(" [" + BuiltInRegistries.ITEM.getKey(this.selectedItem).getNamespace() + "]"));
 
+      List<RecipeHolder<CraftingRecipe>> candidates = CraftRecipeHelper.getCandidateRecipes(this.selectedItem);
+      if (candidates.isEmpty()) {
+         this.selectedRecipe = null;
+      } else {
+         if (this.selectedRecipe == null || !candidates.contains(this.selectedRecipe)) {
+            this.selectedRecipe = candidates.get(0);
+            this.recipeIndex = 0;
+         } else {
+            this.recipeIndex = Math.max(0, candidates.indexOf(this.selectedRecipe));
+         }
+      }
+
       if (this.selectedRecipe == null) {
          this.detailsContainer.add(this.theme.label("No crafting recipe available for this item."));
          return;
+      }
+
+      // Recipe Selector Row if multiple recipes exist
+      if (candidates.size() > 1) {
+         WHorizontalList navRow = this.detailsContainer.add(this.theme.horizontalList()).widget();
+         navRow.add(this.theme.label("Recipe:"));
+
+         WButton prevBtn = navRow.add(this.theme.button("<")).widget();
+         prevBtn.action = () -> {
+            if (candidates.isEmpty()) return;
+            this.recipeIndex = (this.recipeIndex - 1 + candidates.size()) % candidates.size();
+            this.selectedRecipe = candidates.get(this.recipeIndex);
+            updateDetails();
+         };
+
+         navRow.add(this.theme.label((this.recipeIndex + 1) + " of " + candidates.size()));
+
+         WButton nextBtn = navRow.add(this.theme.button(">")).widget();
+         nextBtn.action = () -> {
+            if (candidates.isEmpty()) return;
+            this.recipeIndex = (this.recipeIndex + 1) % candidates.size();
+            this.selectedRecipe = candidates.get(this.recipeIndex);
+            updateDetails();
+         };
       }
 
       boolean is2x2 = CraftRecipeHelper.is2x2(this.selectedRecipe);
@@ -335,7 +373,7 @@ public class AutoCraftScreen extends WindowTabScreen {
       }
 
       // Craft Tree & Base Materials (if intermediate steps exist)
-      CraftPlanner.CraftPlan plan = CraftPlanner.createPlan(this.selectedItem, this.craftQuantity);
+      CraftPlanner.CraftPlan plan = CraftPlanner.createPlan(this.selectedItem, this.craftQuantity, this.selectedRecipe);
       if (plan.steps.size() > 1) {
          this.detailsContainer.add(this.theme.horizontalSeparator()).expandX();
          this.detailsContainer.add(this.theme.label("Craft Tree (" + plan.steps.size() + " Steps):", true));
@@ -397,7 +435,7 @@ public class AutoCraftScreen extends WindowTabScreen {
       WButton craftBtn = this.detailsContainer.add(this.theme.button("Craft " + this.craftQuantity + "x " + this.selectedItem.getDescription().getString())).expandX().widget();
       craftBtn.action = () -> {
          if (this.module != null) {
-            this.module.queueCraft(this.selectedItem, this.craftQuantity);
+            this.module.queueCraft(this.selectedItem, this.selectedRecipe, this.craftQuantity);
          }
          this.parent = null;
          this.onClose();

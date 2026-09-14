@@ -66,7 +66,13 @@ public class CraftPlanner {
       }
    }
 
+   private static final int MAX_DEPTH = 16;
+
    public static CraftPlan createPlan(Item targetItem, int targetCount) {
+      return createPlan(targetItem, targetCount, null);
+   }
+
+   public static CraftPlan createPlan(Item targetItem, int targetCount, RecipeHolder<CraftingRecipe> preferredRootRecipe) {
       if (targetItem == null || targetCount <= 0 || MeteorClient.mc.level == null) {
          return new CraftPlan(targetItem, targetCount, Collections.emptyList(), Collections.emptyMap(), Collections.emptyMap(), false);
       }
@@ -77,7 +83,7 @@ public class CraftPlanner {
       Map<Item, Integer> missingRaw = new LinkedHashMap<>();
       Set<Item> activePath = new HashSet<>();
 
-      boolean satisfied = planItem(targetItem, targetCount, virtualInv, steps, missingRaw, activePath, 0);
+      boolean satisfied = planItem(targetItem, targetCount, virtualInv, steps, missingRaw, activePath, 0, preferredRootRecipe);
 
       // Determine which raw materials were actually consumed from starting inventory
       Map<Item, Integer> rawMaterialsNeeded = new LinkedHashMap<>();
@@ -129,7 +135,8 @@ public class CraftPlanner {
    }
 
    private static boolean planItem(Item item, int neededCount, Map<Item, Integer> virtualInv, List<CraftStep> steps,
-                                   Map<Item, Integer> missingRaw, Set<Item> activePath, int depth) {
+                                   Map<Item, Integer> missingRaw, Set<Item> activePath, int depth,
+                                   RecipeHolder<CraftingRecipe> preferredRecipe) {
       if (neededCount <= 0) return true;
 
       // 1. Take as much as possible from virtual inventory / surplus (intermediate sub-ingredients only)
@@ -144,113 +151,178 @@ public class CraftPlanner {
       }
 
       // 2. Prevent recursion cycles and deep recursion
-      if (depth > 6 || !activePath.add(item)) {
+      if (depth > MAX_DEPTH) {
          missingRaw.put(item, missingRaw.getOrDefault(item, 0) + neededCount);
          return false;
       }
 
+      // If item is already in active recursion path, it's a circular dependency!
+      // Return false WITHOUT adding item to missingRaw (it is not a base raw material, it's a loop).
+      if (!activePath.add(item)) {
+         return false;
+      }
+
       try {
-         // 3. Find the best recipe
-         RecipeHolder<CraftingRecipe> recipe = null;
+         // Gather candidate recipes in priority order
+         List<RecipeHolder<CraftingRecipe>> candidates = new ArrayList<>();
+
+         if (depth == 0 && preferredRecipe != null) {
+            candidates.add(preferredRecipe);
+         }
 
          // Check decompression first (e.g. Iron Block -> 9 Iron Ingots)
          RecipeHolder<CraftingRecipe> decomp = CraftRecipeHelper.findDecompressionRecipe(item, virtualInv);
          if (decomp != null) {
             Item source = CraftRecipeHelper.getSingleIngredientItem(decomp);
-            if (source != null && virtualInv.getOrDefault(source, 0) > 0) {
-               recipe = decomp;
+            if (source != null && virtualInv.getOrDefault(source, 0) > 0 && !candidates.contains(decomp)) {
+               candidates.add(decomp);
             }
          }
 
-         if (recipe == null) {
-            recipe = CraftRecipeHelper.findBestRecipe(item);
+         for (RecipeHolder<CraftingRecipe> cand : CraftRecipeHelper.getCandidateRecipes(item)) {
+            if (!candidates.contains(cand)) {
+               candidates.add(cand);
+            }
          }
 
-         if (recipe == null) {
+         if (candidates.isEmpty()) {
             // No craft recipe available: item is a missing base raw material
             missingRaw.put(item, missingRaw.getOrDefault(item, 0) + neededCount);
             return false;
          }
 
-         int yield = CraftRecipeHelper.getResultCount(recipe);
-         int craftsNeeded = (int) Math.ceil((double) neededCount / yield);
-         int totalProduced = craftsNeeded * yield;
+         boolean anySatisfied = false;
+         Map<Item, Integer> bestVirtualInv = null;
+         List<CraftStep> bestSteps = null;
+         Map<Item, Integer> bestMissingRaw = null;
+         int bestMissingScore = Integer.MAX_VALUE;
 
-         boolean allIngredientsSatisfied = true;
-         Map<Item, Integer> stepConsumed = new LinkedHashMap<>();
+         for (RecipeHolder<CraftingRecipe> recipe : candidates) {
+            Map<Item, Integer> snapInv = new HashMap<>(virtualInv);
+            List<CraftStep> snapSteps = new ArrayList<>(steps);
+            Map<Item, Integer> snapMissing = new LinkedHashMap<>(missingRaw);
 
-         // 4. Group equivalent ingredients in the recipe to prevent per-slot fragmentation
-         List<GroupedIngredient> groupedIngredients = new ArrayList<>();
-         for (Ingredient ingredient : recipe.value().getIngredients()) {
-            if (ingredient.isEmpty()) continue;
-            boolean merged = false;
-            for (GroupedIngredient gi : groupedIngredients) {
-               if (areIngredientsEquivalent(gi.ingredient, ingredient)) {
-                  gi.count++;
-                  merged = true;
-                  break;
-               }
-            }
-            if (!merged) {
-               groupedIngredients.add(new GroupedIngredient(ingredient, 1));
-            }
-         }
+            boolean success = planWithRecipe(recipe, item, neededCount, snapInv, snapSteps, snapMissing, activePath, depth);
 
-         // 5. Resolve each grouped ingredient required by the recipe in batch
-         for (GroupedIngredient gi : groupedIngredients) {
-            int totalNeeded = gi.count * craftsNeeded;
-            int needed = totalNeeded;
-
-            // Check if virtual inventory has an item matching this ingredient
-            for (Map.Entry<Item, Integer> entry : virtualInv.entrySet()) {
-               if (entry.getValue() > 0 && gi.ingredient.test(entry.getKey().getDefaultInstance())) {
-                  int take = Math.min(needed, entry.getValue());
-                  entry.setValue(entry.getValue() - take);
-                  stepConsumed.put(entry.getKey(), stepConsumed.getOrDefault(entry.getKey(), 0) + take);
-                  needed -= take;
-                  if (needed <= 0) break;
-               }
+            if (success && snapMissing.isEmpty()) {
+               virtualInv.clear();
+               virtualInv.putAll(snapInv);
+               steps.clear();
+               steps.addAll(snapSteps);
+               missingRaw.clear();
+               anySatisfied = true;
+               break;
             }
 
-            if (needed > 0) {
-               // Deficit: recursively plan and produce the needed matching ingredient in batch
-               Item rep = CraftRecipeHelper.getRepresentativeItem(gi.ingredient, false);
-               if (rep == null || rep == Items.AIR) {
-                  ItemStack[] matching = gi.ingredient.getItems();
-                  Item missingItem = (matching != null && matching.length > 0) ? matching[0].getItem() : item;
-                  missingRaw.put(missingItem, missingRaw.getOrDefault(missingItem, 0) + needed);
-                  allIngredientsSatisfied = false;
-                  continue;
-               }
+            int score = 0;
+            for (int count : snapMissing.values()) score += count;
+            if (CraftRecipeHelper.is1to1Conversion(recipe)) score += 5000;
 
-               boolean subSuccess = planItem(rep, needed, virtualInv, steps, missingRaw, activePath, depth + 1);
-               if (!subSuccess) {
-                  allIngredientsSatisfied = false;
-               }
-
-               // Consume the produced item from virtual inventory
-               int repHave = virtualInv.getOrDefault(rep, 0);
-               int repTake = Math.min(needed, repHave);
-               if (repTake > 0) {
-                  virtualInv.put(rep, repHave - repTake);
-                  stepConsumed.put(rep, stepConsumed.getOrDefault(rep, 0) + repTake);
-               }
-               if (repTake < needed) {
-                  allIngredientsSatisfied = false;
-               }
+            if (score < bestMissingScore) {
+               bestMissingScore = score;
+               bestVirtualInv = snapInv;
+               bestSteps = snapSteps;
+               bestMissingRaw = snapMissing;
             }
          }
 
-         // 5. Add this step to the execution list
-         steps.add(new CraftStep(item, recipe, craftsNeeded, totalProduced, neededCount, stepConsumed));
+         if (!anySatisfied) {
+            if (bestVirtualInv != null) {
+               virtualInv.clear();
+               virtualInv.putAll(bestVirtualInv);
+               steps.clear();
+               steps.addAll(bestSteps);
+               missingRaw.clear();
+               missingRaw.putAll(bestMissingRaw);
+            }
+            return false;
+         }
 
-         // 6. Deposit all produced items into virtual inventory so caller can consume what it needs
-         virtualInv.put(item, virtualInv.getOrDefault(item, 0) + totalProduced);
-
-         return allIngredientsSatisfied;
+         return true;
       } finally {
          activePath.remove(item);
       }
+   }
+
+   private static boolean planWithRecipe(RecipeHolder<CraftingRecipe> recipe, Item item, int neededCount,
+                                         Map<Item, Integer> virtualInv, List<CraftStep> steps,
+                                         Map<Item, Integer> missingRaw, Set<Item> activePath, int depth) {
+      int yield = CraftRecipeHelper.getResultCount(recipe);
+      int craftsNeeded = (int) Math.ceil((double) neededCount / yield);
+      int totalProduced = craftsNeeded * yield;
+
+      boolean allIngredientsSatisfied = true;
+      Map<Item, Integer> stepConsumed = new LinkedHashMap<>();
+
+      // 4. Group equivalent ingredients in the recipe to prevent per-slot fragmentation
+      List<GroupedIngredient> groupedIngredients = new ArrayList<>();
+      for (Ingredient ingredient : recipe.value().getIngredients()) {
+         if (ingredient.isEmpty()) continue;
+         boolean merged = false;
+         for (GroupedIngredient gi : groupedIngredients) {
+            if (areIngredientsEquivalent(gi.ingredient, ingredient)) {
+               gi.count++;
+               merged = true;
+               break;
+            }
+         }
+         if (!merged) {
+            groupedIngredients.add(new GroupedIngredient(ingredient, 1));
+         }
+      }
+
+      // 5. Resolve each grouped ingredient required by the recipe in batch
+      for (GroupedIngredient gi : groupedIngredients) {
+         int totalNeeded = gi.count * craftsNeeded;
+         int needed = totalNeeded;
+
+         // Check if virtual inventory has an item matching this ingredient
+         for (Map.Entry<Item, Integer> entry : virtualInv.entrySet()) {
+            if (entry.getValue() > 0 && gi.ingredient.test(entry.getKey().getDefaultInstance())) {
+               int take = Math.min(needed, entry.getValue());
+               entry.setValue(entry.getValue() - take);
+               stepConsumed.put(entry.getKey(), stepConsumed.getOrDefault(entry.getKey(), 0) + take);
+               needed -= take;
+               if (needed <= 0) break;
+            }
+         }
+
+         if (needed > 0) {
+            // Deficit: recursively plan and produce the needed matching ingredient in batch
+            Item rep = CraftRecipeHelper.getRepresentativeItem(gi.ingredient, false);
+            if (rep == null || rep == Items.AIR) {
+               ItemStack[] matching = gi.ingredient.getItems();
+               Item missingItem = (matching != null && matching.length > 0) ? matching[0].getItem() : item;
+               missingRaw.put(missingItem, missingRaw.getOrDefault(missingItem, 0) + needed);
+               allIngredientsSatisfied = false;
+               continue;
+            }
+
+            boolean subSuccess = planItem(rep, needed, virtualInv, steps, missingRaw, activePath, depth + 1, null);
+            if (!subSuccess) {
+               allIngredientsSatisfied = false;
+            }
+
+            // Consume the produced item from virtual inventory
+            int repHave = virtualInv.getOrDefault(rep, 0);
+            int repTake = Math.min(needed, repHave);
+            if (repTake > 0) {
+               virtualInv.put(rep, repHave - repTake);
+               stepConsumed.put(rep, stepConsumed.getOrDefault(rep, 0) + repTake);
+            }
+            if (repTake < needed) {
+               allIngredientsSatisfied = false;
+            }
+         }
+      }
+
+      // 6. Add this step to the execution list
+      steps.add(new CraftStep(item, recipe, craftsNeeded, totalProduced, neededCount, stepConsumed));
+
+      // 7. Deposit all produced items into virtual inventory so caller can consume what it needs
+      virtualInv.put(item, virtualInv.getOrDefault(item, 0) + totalProduced);
+
+      return allIngredientsSatisfied;
    }
 
    private static List<CraftStep> optimizeSteps(List<CraftStep> steps) {

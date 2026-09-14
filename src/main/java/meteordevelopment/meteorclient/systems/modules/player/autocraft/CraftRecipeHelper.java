@@ -95,37 +95,72 @@ public class CraftRecipeHelper {
       return RECIPES_BY_RESULT.getOrDefault(item, Collections.emptyList());
    }
 
+   public static boolean is1to1Conversion(RecipeHolder<CraftingRecipe> holder) {
+      if (holder == null) return false;
+      if (getResultCount(holder) != 1) return false;
+      int nonEmpty = 0;
+      for (Ingredient ing : holder.value().getIngredients()) {
+         if (!ing.isEmpty()) {
+            nonEmpty++;
+            if (nonEmpty > 1) return false;
+         }
+      }
+      return nonEmpty == 1;
+   }
+
+   public static boolean isDecompressionRecipe(RecipeHolder<CraftingRecipe> holder) {
+      if (holder == null) return false;
+      int yield = getResultCount(holder);
+      if (yield <= 1) return false;
+      Item source = getSingleIngredientItem(holder);
+      return source != null;
+   }
+
+   public static List<RecipeHolder<CraftingRecipe>> getCandidateRecipes(Item item) {
+      List<RecipeHolder<CraftingRecipe>> raw = getRecipesFor(item);
+      if (raw.isEmpty()) return Collections.emptyList();
+      if (raw.size() == 1) return raw;
+
+      List<RecipeHolder<CraftingRecipe>> candidates = new ArrayList<>(raw);
+      candidates.sort((a, b) -> {
+         // 1. Direct satisfaction in inventory (highest priority)
+         boolean satA = canSatisfy(a, 1, false);
+         boolean satB = canSatisfy(b, 1, false);
+         if (satA != satB) return satA ? -1 : 1;
+
+         // 2. Decompression with owned storage block
+         Item srcA = getSingleIngredientItem(a);
+         Item srcB = getSingleIngredientItem(b);
+         boolean ownsDecompA = isDecompressionRecipe(a) && srcA != null && countInInventory(srcA) > 0;
+         boolean ownsDecompB = isDecompressionRecipe(b) && srcB != null && countInInventory(srcB) > 0;
+         if (ownsDecompA != ownsDecompB) return ownsDecompA ? -1 : 1;
+
+         // 3. Decompression satisfaction
+         boolean decompSatA = canSatisfy(a, 1, true);
+         boolean decompSatB = canSatisfy(b, 1, true);
+         if (decompSatA != decompSatB) return decompSatA ? -1 : 1;
+
+         // 4. Heavily penalize 1:1 conversion recipes where player does NOT own the input item
+         boolean unownedConvA = is1to1Conversion(a) && !satA;
+         boolean unownedConvB = is1to1Conversion(b) && !satB;
+         if (unownedConvA != unownedConvB) {
+            return unownedConvA ? 1 : -1; // unowned conversion pushed to the back
+         }
+
+         // 5. Prefer higher yield
+         int yieldA = getResultCount(a);
+         int yieldB = getResultCount(b);
+         if (yieldA != yieldB) return Integer.compare(yieldB, yieldA);
+
+         return 0;
+      });
+
+      return candidates;
+   }
+
    public static RecipeHolder<CraftingRecipe> findBestRecipe(Item item) {
-      List<RecipeHolder<CraftingRecipe>> recipes = getRecipesFor(item);
-      if (recipes.isEmpty()) {
-         return null;
-      }
-      if (recipes.size() == 1) {
-         return recipes.get(0);
-      }
-
-      // 1. Pick a recipe whose ingredients are already fully satisfied directly in inventory
-      for (RecipeHolder<CraftingRecipe> holder : recipes) {
-         if (canSatisfy(holder, 1, false)) {
-            return holder;
-         }
-      }
-
-      // 2. Check if a true decompression recipe can supply this item directly (e.g. 1 Iron Block -> 9 Iron Ingots)
-      RecipeHolder<CraftingRecipe> decomp = findDecompressionRecipe(item);
-      if (decomp != null) {
-         return decomp;
-      }
-
-      // 3. Pick a recipe whose ingredients can be satisfied with decompression
-      for (RecipeHolder<CraftingRecipe> holder : recipes) {
-         if (canSatisfy(holder, 1, true)) {
-            return holder;
-         }
-      }
-
-      // 4. Fallback to the first available recipe (CraftPlanner handles recursive multi-step resolution)
-      return recipes.get(0);
+      List<RecipeHolder<CraftingRecipe>> candidates = getCandidateRecipes(item);
+      return candidates.isEmpty() ? null : candidates.get(0);
    }
 
    public static RecipeHolder<CraftingRecipe> findDecompressionRecipe(Item item) {

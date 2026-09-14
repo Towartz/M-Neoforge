@@ -81,16 +81,26 @@ public class AutoCraft extends Module {
 
    public static class CraftTask {
       public final Item item;
+      public final RecipeHolder<CraftingRecipe> preferredRecipe;
       public final int initialCount;
       public int remainingCount;
       public final int targetDeficit;
 
       public CraftTask(Item item, int count) {
-         this(item, count, 0);
+         this(item, null, count, 0);
       }
 
       public CraftTask(Item item, int count, int targetDeficit) {
+         this(item, null, count, targetDeficit);
+      }
+
+      public CraftTask(Item item, RecipeHolder<CraftingRecipe> preferredRecipe, int count) {
+         this(item, preferredRecipe, count, 0);
+      }
+
+      public CraftTask(Item item, RecipeHolder<CraftingRecipe> preferredRecipe, int count, int targetDeficit) {
          this.item = item;
+         this.preferredRecipe = preferredRecipe;
          this.initialCount = count;
          this.remainingCount = count;
          this.targetDeficit = targetDeficit;
@@ -208,6 +218,7 @@ public class AutoCraft extends Module {
    private Item lastResolvedItem = null;
    private int lastResolvedRemaining = -1;
    private int resolutionAttempts = 0;
+   private int backpackOpenRetries = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -233,6 +244,7 @@ public class AutoCraft extends Module {
       this.activeRecipe = null;
       this.chestWaitTicks = 0;
       this.backpackTabWaitTicks = 0;
+      this.backpackOpenRetries = 0;
       this.navWaitTicks = 0;
       this.craftRetryTicks = 0;
       this.gridResultWaitTicks = 0;
@@ -262,9 +274,13 @@ public class AutoCraft extends Module {
    }
 
    public void queueCraft(Item item, int count) {
+      queueCraft(item, null, count);
+   }
+
+   public void queueCraft(Item item, RecipeHolder<CraftingRecipe> preferredRecipe, int count) {
       if (item == null || count <= 0) return;
       this.consecutiveExhaustions = 0;
-      this.queue.add(new CraftTask(item, count));
+      this.queue.add(new CraftTask(item, preferredRecipe, count));
       if (!this.isActive()) {
          this.toggle();
       }
@@ -336,6 +352,8 @@ public class AutoCraft extends Module {
 
    private void handleOpeningBackpack() {
       if (BackpackAdapter.isBackpackMenu(this.mc.player.containerMenu)) {
+         this.backpackOpenRetries = 0;
+         this.chestWaitTicks = 0;
          AbstractContainerMenu menu = this.mc.player.containerMenu;
          BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
 
@@ -359,9 +377,9 @@ public class AutoCraft extends Module {
                this.timer = this.craftDelay.get() + 3;
                return;
             } else {
-               // Tab is marked open, waiting briefly for slot repositioning sync (up to 5 checks = 10 ticks)
+               // Tab is marked open, waiting briefly for slot repositioning sync (up to 10 checks = 20 ticks)
                this.backpackTabWaitTicks++;
-               if (this.backpackTabWaitTicks <= 5) {
+               if (this.backpackTabWaitTicks <= 10) {
                   this.timer = 2;
                   return;
                }
@@ -387,9 +405,32 @@ public class AutoCraft extends Module {
       }
 
       this.chestWaitTicks++;
-      if (this.chestWaitTicks > 25) {
-         this.error("Failed to open backpack (timed out).");
-         this.cancelTask();
+
+      // Re-trigger open action periodically in case high ping / packet loss delayed it
+      if (this.chestWaitTicks % 20 == 0 && BackpackAdapter.hasPortableCraftingAvailable()) {
+         BackpackAdapter.openPortableCrafting();
+      }
+
+      if (this.chestWaitTicks > 80) {
+         this.chestWaitTicks = 0;
+         if (this.backpackOpenRetries < 2) {
+            this.backpackOpenRetries++;
+            this.info("Backpack open delayed by server ping, retrying (%d/2)...", this.backpackOpenRetries);
+            if (BackpackAdapter.hasPortableCraftingAvailable()) {
+               BackpackAdapter.openPortableCrafting();
+            }
+            this.timer = this.craftDelay.get() + 4;
+            return;
+         }
+
+         this.backpackOpenRetries = 0;
+         this.warning("Backpack open timed out due to high ping. Continuing via table or inventory...");
+         if (this.activeRecipe != null && CraftRecipeHelper.canSatisfy(this.activeRecipe, 1)) {
+            this.state = State.CRAFTING;
+            return;
+         }
+         this.state = State.RESOLVING;
+         this.timer = this.craftDelay.get() + 2;
       }
    }
 
@@ -540,15 +581,16 @@ public class AutoCraft extends Module {
       }
 
       this.chestWaitTicks++;
-      if (this.chestWaitTicks > 25) {
-         this.error("Failed to open backpack for offloading (timed out).");
-         this.cancelTask();
-         return;
+      if (this.chestWaitTicks % 20 == 0 && BackpackAdapter.hasPortableCraftingAvailable()) {
+         BackpackAdapter.openPortableCrafting();
       }
 
-      if (BackpackAdapter.hasPortableCraftingAvailable()) {
-         BackpackAdapter.openPortableCrafting();
+      if (this.chestWaitTicks > 80) {
+         this.warning("Failed to open backpack for offloading (timed out due to ping). Continuing with task...");
+         this.chestWaitTicks = 0;
+         this.state = State.RESOLVING;
          this.timer = this.craftDelay.get() + 2;
+         return;
       }
    }
 
@@ -576,7 +618,10 @@ public class AutoCraft extends Module {
          this.resolutionAttempts = 0;
       }
 
-      this.activeRecipe = CraftRecipeHelper.findBestRecipe(this.currentTask.item);
+      this.activeRecipe = (this.currentTask.preferredRecipe != null)
+         ? this.currentTask.preferredRecipe
+         : CraftRecipeHelper.findBestRecipe(this.currentTask.item);
+
       if (this.activeRecipe == null) {
          this.error("No crafting recipe found for (highlight)%s(default).", this.currentTask.item.getDescription().getString());
          this.currentTask = null;
@@ -595,7 +640,7 @@ public class AutoCraft extends Module {
       // Ingredients missing for full order - check if CraftPlanner can resolve full order recursively
       CraftPlanner.CraftPlan plan = null;
       if (this.recursiveCrafting.get()) {
-         plan = CraftPlanner.createPlan(this.currentTask.item, this.currentTask.remainingCount);
+         plan = CraftPlanner.createPlan(this.currentTask.item, this.currentTask.remainingCount, this.activeRecipe);
          if (plan.isSatisfied && plan.steps.size() > 1) {
             // Plan has intermediate prerequisite steps in dependency order!
             List<CraftPlanner.CraftStep> prereqs = new ArrayList<>(plan.steps.subList(0, plan.steps.size() - 1));
@@ -605,7 +650,7 @@ public class AutoCraft extends Module {
 
             for (int i = prereqs.size() - 1; i >= 0; i--) {
                CraftPlanner.CraftStep step = prereqs.get(i);
-               this.queue.add(0, new CraftTask(step.resultItem, step.deficitNeeded));
+               this.queue.add(0, new CraftTask(step.resultItem, step.recipe, step.deficitNeeded));
             }
 
             this.info("Craft tree resolved: (highlight)%d step(s)(default) for %s.",
@@ -853,7 +898,7 @@ public class AutoCraft extends Module {
 
       int yield = CraftRecipeHelper.getResultCount(this.activeRecipe);
       int craftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / yield);
-      CraftPlanner.CraftPlan plan = CraftPlanner.createPlan(this.currentTask.item, this.currentTask.remainingCount);
+      CraftPlanner.CraftPlan plan = CraftPlanner.createPlan(this.currentTask.item, this.currentTask.remainingCount, this.activeRecipe);
       Map<Item, Integer> needed = (plan != null && !plan.missingRawMaterials.isEmpty())
          ? new HashMap<>(plan.missingRawMaterials)
          : CraftRecipeHelper.getMissingItems(this.activeRecipe, craftsNeeded);
