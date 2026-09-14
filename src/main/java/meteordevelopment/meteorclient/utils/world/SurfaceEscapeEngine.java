@@ -4,6 +4,7 @@ import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.Settings;
 import baritone.api.pathing.goals.Goal;
+import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalComposite;
 import baritone.api.pathing.goals.GoalXZ;
 import baritone.api.pathing.goals.GoalYLevel;
@@ -26,6 +27,7 @@ import net.minecraft.world.level.block.LadderBlock;
 import net.minecraft.world.level.block.TorchBlock;
 import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 public class SurfaceEscapeEngine {
@@ -34,7 +36,13 @@ public class SurfaceEscapeEngine {
    private static int startPickaxeDamage = 0;
    private static ItemStack trackedPickaxe = ItemStack.EMPTY;
    private static Integer currentTargetX = null;
+   private static Integer currentTargetY = null;
    private static Integer currentTargetZ = null;
+   private static int currentStageTargetY = 0;
+   private static int currentAnchorX = 0;
+   private static int currentAnchorZ = 0;
+   private static int totalTargetSurfaceY = 0;
+   private static int activeStageStep = 100;
 
    // Backup of original Baritone settings
    private static double prevBreakPenalty = 2.0;
@@ -66,8 +74,28 @@ public class SurfaceEscapeEngine {
       return currentTargetX;
    }
 
+   public static Integer getTargetY() {
+      return currentTargetY;
+   }
+
    public static Integer getTargetZ() {
       return currentTargetZ;
+   }
+
+   public static int getCurrentStageTargetY() {
+      return currentStageTargetY;
+   }
+
+   public static int getTotalTargetSurfaceY() {
+      return totalTargetSurfaceY;
+   }
+
+   public static int getCurrentAnchorX() {
+      return currentAnchorX;
+   }
+
+   public static int getCurrentAnchorZ() {
+      return currentAnchorZ;
    }
 
    public static BlockPos getStartPos() {
@@ -186,6 +214,45 @@ public class SurfaceEscapeEngine {
       return bestShaft;
    }
 
+   public static int calculateSurfaceY(int x, int z, int minSurfaceY) {
+      if (MeteorClient.mc.level == null) return minSurfaceY;
+      ClientLevel level = MeteorClient.mc.level;
+
+      if (level.dimension() == Level.NETHER) {
+         return Math.max(minSurfaceY, 65);
+      }
+
+      int cx = x >> 4;
+      int cz = z >> 4;
+      int surfY = minSurfaceY;
+
+      if (level.getChunkSource().hasChunk(cx, cz)) {
+         LevelChunk chunk = level.getChunk(cx, cz);
+         if (chunk != null) {
+            int h1 = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, x & 15, z & 15);
+            int h2 = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x & 15, z & 15);
+            surfY = Math.max(minSurfaceY, Math.max(h1, h2));
+
+            // Liquid check: if top block is water or bubble column, ascend above water surface
+            BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos(x, surfY, z);
+            while (surfY < level.getMaxBuildHeight() && (level.getBlockState(m).is(Blocks.WATER) || level.getBlockState(m).is(Blocks.BUBBLE_COLUMN))) {
+               surfY++;
+               m.setY(surfY);
+            }
+         }
+      } else {
+         surfY = Math.max(minSurfaceY, level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z));
+      }
+
+      return surfY;
+   }
+
+   public static int calculateNextStageY(int currentY, int surfaceY, int stageStep) {
+      if (currentY >= surfaceY) return surfaceY;
+      int step = Math.max(20, stageStep);
+      return Math.min(surfaceY, currentY + step);
+   }
+
    public static boolean isAlreadyOnSurface(int minSurfaceY) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
       ClientLevel level = MeteorClient.mc.level;
@@ -204,23 +271,27 @@ public class SurfaceEscapeEngine {
          return false;
       }
 
-      // Targeted navigation arrival check (allowing 1 block tolerance)
+      // Targeted navigation arrival check (allowing 2 blocks tolerance)
       if (currentTargetX != null && currentTargetZ != null) {
-         if (Math.abs(playerPos.getX() - currentTargetX) <= 1 && Math.abs(playerPos.getZ() - currentTargetZ) <= 1) {
-            int surfaceAtXZ = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, currentTargetX, currentTargetZ);
+         if (Math.abs(playerPos.getX() - currentTargetX) <= 2 && Math.abs(playerPos.getZ() - currentTargetZ) <= 2) {
+            int surfaceAtXZ = calculateSurfaceY(currentTargetX, currentTargetZ, minSurfaceY);
             return playerPos.getY() >= surfaceAtXZ - 1;
          }
          return false;
       }
 
-      if (playerPos.getY() < minSurfaceY) return false;
+      if (currentTargetY != null) {
+         return playerPos.getY() >= currentTargetY;
+      }
 
-      int surfaceAtPlayer = level.getHeight(Heightmap.Types.WORLD_SURFACE, playerPos.getX(), playerPos.getZ());
+      if (playerPos.getY() < minSurfaceY - 1) return false;
+
+      int surfaceAtPlayer = calculateSurfaceY(playerPos.getX(), playerPos.getZ(), minSurfaceY);
       if (playerPos.getY() >= surfaceAtPlayer - 1) {
          return true;
       }
 
-      // Cave mouth, ravine, or low saddle exposed to sky
+      // Cave mouth, ravine, or low saddle exposed to sky with head clearance
       if (level.canSeeSky(playerPos) || level.canSeeSky(playerPos.above())) {
          BlockPos torsoPos = playerPos.above();
          int solidSides = 0;
@@ -230,7 +301,7 @@ public class SurfaceEscapeEngine {
          if (level.getBlockState(torsoPos.west()).isSolid()) solidSides++;
 
          // Only consider trapped if >= 3 sides are walled in AND significantly below local surface
-         if (solidSides >= 3 && playerPos.getY() < surfaceAtPlayer - 2) {
+         if (solidSides >= 3 && playerPos.getY() < surfaceAtPlayer - 3) {
             return false;
          }
          return true;
@@ -255,14 +326,17 @@ public class SurfaceEscapeEngine {
       if (currentTargetX != null && currentTargetZ != null) {
          double dx = p.getX() - currentTargetX;
          double dz = p.getZ() - currentTargetZ;
-         int surfaceAtTarget = MeteorClient.mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, currentTargetX, currentTargetZ);
+         int surfaceAtTarget = calculateSurfaceY(currentTargetX, currentTargetZ, minSurfaceY);
          double dy = Math.max(0, surfaceAtTarget - p.getY());
          return (int)Math.sqrt(dx * dx + dz * dz + dy * dy);
       }
 
-      int surfaceAtXZ = MeteorClient.mc.level.getHeight(Heightmap.Types.WORLD_SURFACE, p.getX(), p.getZ());
-      int targetY = Math.max(minSurfaceY, surfaceAtXZ);
-      return Math.max(0, targetY - p.getY());
+      if (currentTargetY != null) {
+         return Math.max(0, currentTargetY - p.getY());
+      }
+
+      int surfaceAtXZ = calculateSurfaceY(p.getX(), p.getZ(), minSurfaceY);
+      return Math.max(0, surfaceAtXZ - p.getY());
    }
 
    private static void configureBaritoneSettings(double breakPenalty, boolean allowPlace) {
@@ -285,7 +359,7 @@ public class SurfaceEscapeEngine {
       prevAutoTool = s.autoTool.value;
       prevThrowawayItems = new ArrayList<>(s.acceptableThrowawayItems.value);
 
-      s.blockBreakAdditionalPenalty.value = Math.max(10.0, breakPenalty);
+      s.blockBreakAdditionalPenalty.value = Math.max(1.0, breakPenalty);
       s.allowBreak.value = true;
       s.allowPlace.value = allowPlace;
       s.avoidUpdatingFallingBlocks.value = true;
@@ -296,8 +370,8 @@ public class SurfaceEscapeEngine {
       s.allowDiagonalAscend.value = true;
       s.sprintAscends.value = true;
       s.maxCostIncrease.value = 4000.0;
-      s.primaryTimeoutMS.value = 5000L;
-      s.failureTimeoutMS.value = 15000L;
+      s.primaryTimeoutMS.value = 1500L;
+      s.failureTimeoutMS.value = 6000L;
       s.allowInventory.value = true;
       s.autoTool.value = true;
 
@@ -334,7 +408,7 @@ public class SurfaceEscapeEngine {
       s.acceptableThrowawayItems.value = throwaways;
    }
 
-   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY, boolean useSkyLightGradient) {
+   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY, int stageStep, boolean prioritizeShafts) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
       if (BaritoneAPI.getProvider() == null) return false;
 
@@ -353,29 +427,51 @@ public class SurfaceEscapeEngine {
 
       active = true;
       currentTargetX = null;
+      currentTargetY = null;
       currentTargetZ = null;
+      activeStageStep = stageStep;
 
       baritone.getPathingBehavior().cancelEverything();
 
-      ShaftOpening shaft = findBestVicinityShaft(startPos, 3);
-      int blocksInInv = countThrowawayBlocksInInventory();
+      if (prioritizeShafts) {
+         ShaftOpening shaft = findBestVicinityShaft(startPos, 3);
+         int blocksInInv = countThrowawayBlocksInInventory();
 
-      if (shaft != null && shaft.horizontalDistance <= 2.5 && (shaft.isWaterColumn || (allowPlace && blocksInInv >= 4))) {
-         int targetY = shaft.pos.getY() + shaft.clearance;
-         Goal goal = new GoalComposite(new GoalXZ(shaft.pos.getX(), shaft.pos.getZ()), new GoalYLevel(targetY));
-         baritone.getCustomGoalProcess().setGoalAndPath(goal);
-      } else {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(minSurfaceY, useSkyLightGradient));
+         if (shaft != null && shaft.horizontalDistance <= 2.5 && (shaft.isWaterColumn || (allowPlace && blocksInInv >= 4))) {
+            int targetY = shaft.pos.getY() + shaft.clearance;
+            currentAnchorX = shaft.pos.getX();
+            currentAnchorZ = shaft.pos.getZ();
+            currentStageTargetY = targetY;
+            totalTargetSurfaceY = targetY;
+            Goal goal = new GoalBlock(shaft.pos.getX(), targetY, shaft.pos.getZ());
+            baritone.getCustomGoalProcess().setGoalAndPath(goal);
+            return true;
+         }
       }
 
+      currentAnchorX = startPos.getX();
+      currentAnchorZ = startPos.getZ();
+      totalTargetSurfaceY = calculateSurfaceY(currentAnchorX, currentAnchorZ, minSurfaceY);
+      currentStageTargetY = calculateNextStageY(startPos.getY(), totalTargetSurfaceY, stageStep);
+
+      Goal goal = new GoalBlock(currentAnchorX, currentStageTargetY, currentAnchorZ);
+      baritone.getCustomGoalProcess().setGoalAndPath(goal);
       return true;
    }
 
-   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY) {
-      return startEscape(breakPenalty, allowPlace, minSurfaceY, true);
+   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY, int stageStep) {
+      return startEscape(breakPenalty, allowPlace, minSurfaceY, stageStep, true);
    }
 
-   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY, boolean useSkyLightGradient) {
+   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY, boolean useSkyLightGradient) {
+      return startEscape(breakPenalty, allowPlace, minSurfaceY, 100, true);
+   }
+
+   public static boolean startEscape(double breakPenalty, boolean allowPlace, int minSurfaceY) {
+      return startEscape(breakPenalty, allowPlace, minSurfaceY, 100, true);
+   }
+
+   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY, int stageStep) {
       if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
       if (BaritoneAPI.getProvider() == null) return false;
 
@@ -394,19 +490,102 @@ public class SurfaceEscapeEngine {
 
       active = true;
       currentTargetX = targetX;
+      currentTargetY = null;
       currentTargetZ = targetZ;
+      currentAnchorX = targetX;
+      currentAnchorZ = targetZ;
+      activeStageStep = stageStep;
 
       baritone.getPathingBehavior().cancelEverything();
-      baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(targetX, targetZ, minSurfaceY, useSkyLightGradient));
+
+      totalTargetSurfaceY = calculateSurfaceY(targetX, targetZ, minSurfaceY);
+      currentStageTargetY = totalTargetSurfaceY;
+
+      Goal goal = new GoalBlock(targetX, totalTargetSurfaceY, targetZ);
+      baritone.getCustomGoalProcess().setGoalAndPath(goal);
       return true;
    }
 
-   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY) {
-      return startNavigation(targetX, targetZ, breakPenalty, allowPlace, minSurfaceY, true);
+   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY, boolean useSkyLightGradient) {
+      return startNavigation(targetX, targetZ, breakPenalty, allowPlace, minSurfaceY, 100);
    }
 
-   public static void applyEscalationTier(boolean excavationMode, int minSurfaceY, boolean useSkyLightGradient) {
+   public static boolean startNavigation(int targetX, int targetZ, double breakPenalty, boolean allowPlace, int minSurfaceY) {
+      return startNavigation(targetX, targetZ, breakPenalty, allowPlace, minSurfaceY, 100);
+   }
+
+   public static boolean startDirectY(int targetY, double breakPenalty, boolean allowPlace, int stageStep) {
+      if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return false;
+      if (BaritoneAPI.getProvider() == null) return false;
+
+      IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+      configureBaritoneSettings(breakPenalty, allowPlace);
+
+      startPos = MeteorClient.mc.player.blockPosition();
+      ItemStack mainHand = MeteorClient.mc.player.getMainHandItem();
+      if (mainHand.getItem() instanceof PickaxeItem) {
+         trackedPickaxe = mainHand;
+         startPickaxeDamage = mainHand.getDamageValue();
+      } else {
+         trackedPickaxe = ItemStack.EMPTY;
+         startPickaxeDamage = 0;
+      }
+
+      active = true;
+      currentTargetX = null;
+      currentTargetY = targetY;
+      currentTargetZ = null;
+      currentAnchorX = startPos.getX();
+      currentAnchorZ = startPos.getZ();
+      totalTargetSurfaceY = targetY;
+      activeStageStep = stageStep;
+
+      baritone.getPathingBehavior().cancelEverything();
+
+      currentStageTargetY = calculateNextStageY(startPos.getY(), targetY, stageStep);
+      Goal goal = new GoalBlock(currentAnchorX, currentStageTargetY, currentAnchorZ);
+      baritone.getCustomGoalProcess().setGoalAndPath(goal);
+      return true;
+   }
+
+   public static boolean updateStage(int currentX, int currentY, int currentZ, int minSurfaceY, int stageStep) {
+      if (!active || BaritoneAPI.getProvider() == null) return false;
+
+      if (currentTargetY != null) {
+         totalTargetSurfaceY = currentTargetY;
+      } else if (currentTargetX != null && currentTargetZ != null) {
+         totalTargetSurfaceY = calculateSurfaceY(currentTargetX, currentTargetZ, minSurfaceY);
+      } else {
+         totalTargetSurfaceY = calculateSurfaceY(currentX, currentZ, minSurfaceY);
+      }
+
+      if (currentY >= totalTargetSurfaceY - 1) {
+         return false; // Already reached surface!
+      }
+
+      currentAnchorX = (currentTargetX != null) ? currentTargetX : currentX;
+      currentAnchorZ = (currentTargetZ != null) ? currentTargetZ : currentZ;
+      currentStageTargetY = calculateNextStageY(currentY, totalTargetSurfaceY, stageStep);
+
+      IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+      Goal goal = new GoalBlock(currentAnchorX, currentStageTargetY, currentAnchorZ);
+      baritone.getCustomGoalProcess().setGoalAndPath(goal);
+      return true;
+   }
+
+   public static void reanchorColumn(int newX, int newZ) {
       if (!active || BaritoneAPI.getProvider() == null) return;
+      if (currentTargetX != null && currentTargetZ != null) return; // Do not re-anchor targeted navigation
+
+      currentAnchorX = newX;
+      currentAnchorZ = newZ;
+      IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+      Goal goal = new GoalBlock(currentAnchorX, currentStageTargetY, currentAnchorZ);
+      baritone.getCustomGoalProcess().setGoalAndPath(goal);
+   }
+
+   public static void applyAntiGiveUpRecovery(boolean boostExcavation, int minSurfaceY) {
+      if (!active || BaritoneAPI.getProvider() == null || MeteorClient.mc.player == null) return;
       IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
       Settings s = BaritoneAPI.getSettings();
 
@@ -416,26 +595,35 @@ public class SurfaceEscapeEngine {
       s.allowPlace.value = true;
       s.allowDiagonalAscend.value = true;
       s.sprintAscends.value = true;
-      s.maxCostIncrease.value = 4000.0;
-      s.failureTimeoutMS.value = 15000L;
-      s.primaryTimeoutMS.value = 5000L;
 
-      if (excavationMode) {
-         s.blockBreakAdditionalPenalty.value = 2.0;
-      } else {
-         s.blockBreakAdditionalPenalty.value = 60.0;
+      if (boostExcavation) {
+         s.blockBreakAdditionalPenalty.value = 1.0;
       }
+
+      BlockPos p = MeteorClient.mc.player.blockPosition();
+      if (currentTargetX == null || currentTargetZ == null) {
+         currentAnchorX = p.getX();
+         currentAnchorZ = p.getZ();
+      }
+
+      if (currentTargetY != null) {
+         totalTargetSurfaceY = currentTargetY;
+      } else {
+         totalTargetSurfaceY = calculateSurfaceY(currentAnchorX, currentAnchorZ, minSurfaceY);
+      }
+      currentStageTargetY = calculateNextStageY(p.getY(), totalTargetSurfaceY, activeStageStep);
 
       baritone.getPathingBehavior().cancelEverything();
-      if (currentTargetX != null && currentTargetZ != null) {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(currentTargetX, currentTargetZ, minSurfaceY, useSkyLightGradient));
-      } else {
-         baritone.getCustomGoalProcess().setGoalAndPath(new GoalDynamicSurface(minSurfaceY, useSkyLightGradient));
-      }
+      Goal goal = new GoalBlock(currentAnchorX, currentStageTargetY, currentAnchorZ);
+      baritone.getCustomGoalProcess().setGoalAndPath(goal);
+   }
+
+   public static void applyEscalationTier(boolean excavationMode, int minSurfaceY, boolean useSkyLightGradient) {
+      applyAntiGiveUpRecovery(excavationMode, minSurfaceY);
    }
 
    public static void applyEscalationTier(boolean excavationMode, int minSurfaceY) {
-      applyEscalationTier(excavationMode, minSurfaceY, true);
+      applyAntiGiveUpRecovery(excavationMode, minSurfaceY);
    }
 
    private static void addIfMissing(List<Item> list, Block block) {
@@ -449,7 +637,12 @@ public class SurfaceEscapeEngine {
       if (!active) return;
       active = false;
       currentTargetX = null;
+      currentTargetY = null;
       currentTargetZ = null;
+      currentStageTargetY = 0;
+      currentAnchorX = 0;
+      currentAnchorZ = 0;
+      totalTargetSurfaceY = 0;
       startPos = null;
       trackedPickaxe = ItemStack.EMPTY;
       startPickaxeDamage = 0;

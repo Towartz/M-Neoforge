@@ -46,28 +46,73 @@ public class SurfaceCommand extends Command {
          return 1;
       }));
 
-      builder.then(argument("x", StringArgumentType.string()).then(argument("z", StringArgumentType.string()).executes(context -> {
-         if (this.mc.player == null) return 0;
-         String xStr = context.getArgument("x", String.class);
-         String zStr = context.getArgument("z", String.class);
+      builder.then(argument("xOrY", StringArgumentType.string())
+         .executes(context -> {
+            if (this.mc.player == null) return 0;
+            String yStr = context.getArgument("xOrY", String.class);
 
-         try {
-            int targetX = parseCoordinate(xStr, this.mc.player.getX());
-            int targetZ = parseCoordinate(zStr, this.mc.player.getZ());
-
-            GotoSurface module = Modules.get().get(GotoSurface.class);
-            if (module != null) {
-               if (module.isActive()) {
+            try {
+               int targetY = parseCoordinate(yStr, this.mc.player.getY());
+               GotoSurface module = Modules.get().get(GotoSurface.class);
+               if (module != null) {
+                  if (module.isActive()) module.toggle();
+                  module.setTargetY(targetY);
                   module.toggle();
+                  this.info("Starting surface ascent to elevation Y=%d.", targetY);
                }
-               module.setTarget(targetX, targetZ);
-               module.toggle();
-               this.info("Starting surface navigation to [%d, %d] with dynamic chunk heightmap.", targetX, targetZ);
+            } catch (NumberFormatException e) {
+               this.error("Invalid Y coordinate '%s'. Use a number or ~ notation (e.g. ~100).", yStr);
             }
-         } catch (NumberFormatException e) {
-            this.error("Invalid coordinates '%s %s'. Use numbers or ~ notation (e.g. ~100 ~).", xStr, zStr);
-         }
-         return 1;
-      })));
+            return 1;
+         })
+         .then(argument("zOrY", StringArgumentType.string())
+            .executes(context -> {
+               if (this.mc.player == null) return 0;
+               String xStr = context.getArgument("xOrY", String.class);
+               String zStr = context.getArgument("zOrY", String.class);
+
+               try {
+                  int targetX = parseCoordinate(xStr, this.mc.player.getX());
+                  int targetZ = parseCoordinate(zStr, this.mc.player.getZ());
+
+                  GotoSurface module = Modules.get().get(GotoSurface.class);
+                  if (module != null) {
+                     if (module.isActive()) module.toggle();
+                     module.setTarget(targetX, targetZ);
+                     module.toggle();
+                     this.info("Starting surface navigation to [%d, %d] with dynamic chunk heightmap.", targetX, targetZ);
+                  }
+               } catch (NumberFormatException e) {
+                  this.error("Invalid coordinates '%s %s'. Use numbers or ~ notation (e.g. ~100 ~).", xStr, zStr);
+               }
+               return 1;
+            })
+            .then(argument("z", StringArgumentType.string())
+               .executes(context -> {
+                  if (this.mc.player == null) return 0;
+                  String xStr = context.getArgument("xOrY", String.class);
+                  String yStr = context.getArgument("zOrY", String.class);
+                  String zStr = context.getArgument("z", String.class);
+
+                  try {
+                     int targetX = parseCoordinate(xStr, this.mc.player.getX());
+                     int targetY = parseCoordinate(yStr, this.mc.player.getY());
+                     int targetZ = parseCoordinate(zStr, this.mc.player.getZ());
+
+                     GotoSurface module = Modules.get().get(GotoSurface.class);
+                     if (module != null) {
+                        if (module.isActive()) module.toggle();
+                        module.setTarget(targetX, targetY, targetZ);
+                        module.toggle();
+                        this.info("Starting navigation to [%d, %d, %d].", targetX, targetY, targetZ);
+                     }
+                  } catch (NumberFormatException e) {
+                     this.error("Invalid coordinates '%s %s %s'. Use numbers or ~ notation (e.g. ~ ~100 ~).", xStr, yStr, zStr);
+                  }
+                  return 1;
+               })
+            )
+         )
+      );
    }
 }

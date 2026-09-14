@@ -1,6 +1,8 @@
 package meteordevelopment.meteorclient.pathing;
 
 import baritone.api.pathing.goals.Goal;
+import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.utils.interfaces.IGoalRenderPos;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import meteordevelopment.meteorclient.MeteorClient;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -10,7 +12,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 
-public class GoalDynamicSurface implements Goal {
+public class GoalDynamicSurface implements Goal, IGoalRenderPos {
    private final Integer targetX;
    private final Integer targetZ;
    private final int minSurfaceY;
@@ -22,10 +24,16 @@ public class GoalDynamicSurface implements Goal {
    private final Object cacheLock = new Object();
 
    public GoalDynamicSurface(int minSurfaceY, boolean useSkyLightGradient) {
-      this.targetX = null;
-      this.targetZ = null;
+      if (MeteorClient.mc.player != null) {
+         this.targetX = MeteorClient.mc.player.getBlockX();
+         this.targetZ = MeteorClient.mc.player.getBlockZ();
+         this.isTargeted = true;
+      } else {
+         this.targetX = null;
+         this.targetZ = null;
+         this.isTargeted = false;
+      }
       this.minSurfaceY = minSurfaceY;
-      this.isTargeted = false;
       this.useSkyLightGradient = useSkyLightGradient;
       this.heightCache.defaultReturnValue(Integer.MIN_VALUE);
    }
@@ -151,12 +159,9 @@ public class GoalDynamicSurface implements Goal {
 
    @Override
    public double heuristic(int x, int y, int z) {
-      if (this.isTargeted) {
+      if (this.isTargeted && this.targetX != null && this.targetZ != null) {
          int targetY = this.getSurfaceHeight(this.targetX, this.targetZ);
-         double dx = x - this.targetX;
-         double dy = y - targetY;
-         double dz = z - this.targetZ;
-         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+         return GoalBlock.calculate((double)(x - this.targetX), y - targetY, (double)(z - this.targetZ));
       }
 
       ClientLevel level = MeteorClient.mc.level;
@@ -171,6 +176,14 @@ public class GoalDynamicSurface implements Goal {
       }
 
       return (double)(surfaceY - y) * 1.5;
+   }
+
+   @Override
+   public BlockPos getGoalPos() {
+      if (this.targetX != null && this.targetZ != null) {
+         return new BlockPos(this.targetX, this.getSurfaceHeight(this.targetX, this.targetZ), this.targetZ);
+      }
+      return null;
    }
 
    @Override
