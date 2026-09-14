@@ -902,6 +902,23 @@ public class BackpackAdapter {
       return countInAllBackpacks(item) > 0;
    }
 
+   public static int getFreeSpaceInBackpack(AbstractContainerMenu menu, Item item) {
+      if (menu == null || !isBackpackMenu(menu) || item == null) return 0;
+      BackpackCraftInfo info = getBackpackCraftInfo(menu);
+      if (info.storageStart == -1 || info.storageEnd == -1) return 0;
+      int maxStack = item.getDefaultInstance().getMaxStackSize();
+      int free = 0;
+      for (int i = info.storageStart; i <= Math.min(info.storageEnd, menu.slots.size() - 1); i++) {
+         ItemStack stack = menu.slots.get(i).getItem();
+         if (stack.isEmpty()) {
+            free += maxStack;
+         } else if (stack.is(item)) {
+            free += Math.max(0, maxStack - stack.getCount());
+         }
+      }
+      return free;
+   }
+
    public static int depositItemToBackpack(AbstractContainerMenu menu, Item item) {
       if (menu == null || !isBackpackMenu(menu) || item == null) return 0;
       int moved = 0;

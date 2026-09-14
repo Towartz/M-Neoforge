@@ -22,14 +22,20 @@ public class CraftPlanner {
       public final RecipeHolder<CraftingRecipe> recipe;
       public final int craftCount;
       public final int yieldProduced;
+      public final int deficitNeeded;
       public final Map<Item, Integer> ingredientsConsumed;
 
-      public CraftStep(Item resultItem, RecipeHolder<CraftingRecipe> recipe, int craftCount, int yieldProduced, Map<Item, Integer> ingredientsConsumed) {
+      public CraftStep(Item resultItem, RecipeHolder<CraftingRecipe> recipe, int craftCount, int yieldProduced, int deficitNeeded, Map<Item, Integer> ingredientsConsumed) {
          this.resultItem = resultItem;
          this.recipe = recipe;
          this.craftCount = craftCount;
          this.yieldProduced = yieldProduced;
+         this.deficitNeeded = deficitNeeded;
          this.ingredientsConsumed = ingredientsConsumed;
+      }
+
+      public CraftStep(Item resultItem, RecipeHolder<CraftingRecipe> recipe, int craftCount, int yieldProduced, Map<Item, Integer> ingredientsConsumed) {
+         this(resultItem, recipe, craftCount, yieldProduced, yieldProduced, ingredientsConsumed);
       }
    }
 
@@ -184,7 +190,7 @@ public class CraftPlanner {
          }
 
          // 5. Add this step to the execution list
-         steps.add(new CraftStep(item, recipe, craftsNeeded, totalProduced, stepConsumed));
+         steps.add(new CraftStep(item, recipe, craftsNeeded, totalProduced, neededCount, stepConsumed));
 
          // 6. Deposit all produced items into virtual inventory so caller can consume what it needs
          virtualInv.put(item, virtualInv.getOrDefault(item, 0) + totalProduced);
@@ -198,32 +204,48 @@ public class CraftPlanner {
    private static List<CraftStep> optimizeSteps(List<CraftStep> steps) {
       if (steps.size() <= 1) return steps;
 
-      List<CraftStep> optimized = new ArrayList<>();
-      CraftStep current = null;
+      List<CraftStep> result = new ArrayList<>(steps);
+      boolean mergedAny = true;
 
-      for (CraftStep step : steps) {
-         if (current == null) {
-            current = step;
-            continue;
-         }
+      while (mergedAny) {
+         mergedAny = false;
+         for (int i = 0; i < result.size(); i++) {
+            CraftStep a = result.get(i);
+            for (int j = i + 1; j < result.size(); j++) {
+               CraftStep b = result.get(j);
+               if (a.recipe.equals(b.recipe) && a.resultItem == b.resultItem) {
+                  // Check if any intermediate step between i and j produces an ingredient that b consumes
+                  boolean dependsOnIntermediate = false;
+                  for (int k = i + 1; k < j; k++) {
+                     CraftStep mid = result.get(k);
+                     if (b.ingredientsConsumed.containsKey(mid.resultItem)) {
+                        dependsOnIntermediate = true;
+                        break;
+                     }
+                  }
 
-         if (current.recipe.equals(step.recipe) && current.resultItem == step.resultItem) {
-            Map<Item, Integer> mergedConsumed = new LinkedHashMap<>(current.ingredientsConsumed);
-            for (Map.Entry<Item, Integer> e : step.ingredientsConsumed.entrySet()) {
-               mergedConsumed.put(e.getKey(), mergedConsumed.getOrDefault(e.getKey(), 0) + e.getValue());
+                  if (!dependsOnIntermediate) {
+                     // b can safely be merged into a
+                     Map<Item, Integer> mergedConsumed = new LinkedHashMap<>(a.ingredientsConsumed);
+                     for (Map.Entry<Item, Integer> e : b.ingredientsConsumed.entrySet()) {
+                        mergedConsumed.put(e.getKey(), mergedConsumed.getOrDefault(e.getKey(), 0) + e.getValue());
+                     }
+                     CraftStep merged = new CraftStep(a.resultItem, a.recipe,
+                        a.craftCount + b.craftCount,
+                        a.yieldProduced + b.yieldProduced,
+                        a.deficitNeeded + b.deficitNeeded,
+                        mergedConsumed);
+                     result.set(i, merged);
+                     result.remove(j);
+                     mergedAny = true;
+                     break;
+                  }
+               }
             }
-            current = new CraftStep(current.resultItem, current.recipe, current.craftCount + step.craftCount,
-               current.yieldProduced + step.yieldProduced, mergedConsumed);
-         } else {
-            optimized.add(current);
-            current = step;
+            if (mergedAny) break;
          }
       }
 
-      if (current != null) {
-         optimized.add(current);
-      }
-
-      return optimized;
+      return result;
    }
 }

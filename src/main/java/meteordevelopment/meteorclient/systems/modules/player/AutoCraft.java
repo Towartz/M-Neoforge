@@ -83,11 +83,17 @@ public class AutoCraft extends Module {
       public final Item item;
       public final int initialCount;
       public int remainingCount;
+      public final int targetDeficit;
 
       public CraftTask(Item item, int count) {
+         this(item, count, 0);
+      }
+
+      public CraftTask(Item item, int count, int targetDeficit) {
          this.item = item;
          this.initialCount = count;
          this.remainingCount = count;
+         this.targetDeficit = targetDeficit;
       }
    }
 
@@ -190,10 +196,15 @@ public class AutoCraft extends Module {
    private int pendingExpectedYield = 0;
    private int pendingBeforeDirectCount = 0;
    private int pendingBeforePoolCount = 0;
+   private int pendingBatchCount = 0;
+   private int pendingYieldPerCraft = 0;
+   private int pendingGridTotalBefore = 0;
    private int pendingSlot = -1;
    private int pendingWaitTicks = 0;
    private boolean pendingIsBackpack = false;
    private int settleWaitTicks = 0;
+   private Item settleTargetItem = null;
+   private int settleTargetBeforeCount = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -224,6 +235,8 @@ public class AutoCraft extends Module {
       this.gridResultWaitTicks = 0;
       this.consecutiveExhaustions = 0;
       this.settleWaitTicks = 0;
+      this.settleTargetItem = null;
+      this.settleTargetBeforeCount = 0;
       clearPendingCraft();
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
@@ -234,6 +247,9 @@ public class AutoCraft extends Module {
       this.pendingExpectedYield = 0;
       this.pendingBeforeDirectCount = 0;
       this.pendingBeforePoolCount = 0;
+      this.pendingBatchCount = 0;
+      this.pendingYieldPerCraft = 0;
+      this.pendingGridTotalBefore = 0;
       this.pendingSlot = -1;
       this.pendingWaitTicks = 0;
       this.pendingIsBackpack = false;
@@ -547,6 +563,22 @@ public class AutoCraft extends Module {
          return;
       }
 
+      // If this was a prerequisite task, check if the parent deficit is already satisfied
+      if (this.currentTask.targetDeficit > 0) {
+         int onHand = CraftRecipeHelper.countInInventory(this.currentTask.item)
+            + (BackpackAdapter.isBackpackMenu(this.mc.player.containerMenu)
+               ? BackpackAdapter.countInAllBackpacks(this.currentTask.item)
+               : 0);
+         if (onHand >= this.currentTask.targetDeficit) {
+            this.info("Prerequisite requirement for %s satisfied (%d on hand). Proceeding to parent craft...",
+               this.currentTask.item.getDescription().getString(), onHand);
+            this.currentTask = null;
+            this.state = State.RESOLVING;
+            this.timer = 1;
+            return;
+         }
+      }
+
       int yield = CraftRecipeHelper.getResultCount(this.activeRecipe);
       int craftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / yield);
       Map<Item, Integer> missing = CraftRecipeHelper.getMissingItems(this.activeRecipe, craftsNeeded);
@@ -569,7 +601,7 @@ public class AutoCraft extends Module {
 
             for (int i = prereqs.size() - 1; i >= 0; i--) {
                CraftPlanner.CraftStep step = prereqs.get(i);
-               this.queue.add(0, new CraftTask(step.resultItem, step.yieldProduced));
+               this.queue.add(0, new CraftTask(step.resultItem, step.yieldProduced, step.deficitNeeded));
             }
 
             this.info("Craft tree resolved: (highlight)%d step(s)(default) for %s.",
@@ -955,7 +987,22 @@ public class AutoCraft extends Module {
             if (!currentResult.isEmpty() && currentResult.is(this.currentTask.item)) {
                this.gridResultWaitTicks = 0;
                this.pendingCraftItem = this.currentTask.item;
-               this.pendingExpectedYield = currentResult.getCount();
+               this.pendingYieldPerCraft = Math.max(1, CraftRecipeHelper.getResultCount(this.activeRecipe));
+
+               int minGridCount = Integer.MAX_VALUE;
+               int totalGrid = 0;
+               for (int s = info.gridStart; s <= info.gridEnd; s++) {
+                  ItemStack st = menu.getSlot(s).getItem();
+                  if (!st.isEmpty()) {
+                     minGridCount = Math.min(minGridCount, st.getCount());
+                     totalGrid += st.getCount();
+                  }
+               }
+               if (minGridCount == Integer.MAX_VALUE) minGridCount = 1;
+               this.pendingBatchCount = minGridCount;
+               this.pendingGridTotalBefore = totalGrid;
+               this.pendingExpectedYield = minGridCount * this.pendingYieldPerCraft;
+
                this.pendingBeforeDirectCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
                List<Integer> srcSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
                this.pendingBeforePoolCount = BackpackAdapter.getSourcePool(menu, srcSlots).getOrDefault(this.currentTask.item, 0);
@@ -998,9 +1045,12 @@ public class AutoCraft extends Module {
             List<Integer> sourceSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
             Map<Item, Integer> pool = BackpackAdapter.getSourcePool(menu, sourceSlots);
             int maxBatch = CraftRecipeHelper.calculateMaxCraftsFromPool(this.activeRecipe, pool);
-            int yield = CraftRecipeHelper.getResultCount(this.activeRecipe);
-            int craftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / Math.max(1, yield));
-            int batchCount = Math.min(maxBatch, craftsNeeded);
+            int yield = Math.max(1, CraftRecipeHelper.getResultCount(this.activeRecipe));
+            int craftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / yield);
+            int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.currentTask.item)
+               + BackpackAdapter.getFreeSpaceInBackpack(menu, this.currentTask.item);
+            int maxHoldableCrafts = Math.max(1, freeSpace / yield);
+            int batchCount = Math.min(maxBatch, Math.min(craftsNeeded, maxHoldableCrafts));
 
             if (batchCount <= 0) {
                BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
@@ -1078,7 +1128,23 @@ public class AutoCraft extends Module {
       if (!currentResult.isEmpty() && currentResult.is(this.currentTask.item)) {
          this.gridResultWaitTicks = 0;
          this.pendingCraftItem = this.currentTask.item;
-         this.pendingExpectedYield = currentResult.getCount();
+         this.pendingYieldPerCraft = Math.max(1, CraftRecipeHelper.getResultCount(this.activeRecipe));
+
+         int gEnd = table3x3 ? 9 : 4;
+         int minGridCount = Integer.MAX_VALUE;
+         int totalGrid = 0;
+         for (int s = 1; s <= gEnd; s++) {
+            ItemStack st = menu.getSlot(s).getItem();
+            if (!st.isEmpty()) {
+               minGridCount = Math.min(minGridCount, st.getCount());
+               totalGrid += st.getCount();
+            }
+         }
+         if (minGridCount == Integer.MAX_VALUE) minGridCount = 1;
+         this.pendingBatchCount = minGridCount;
+         this.pendingGridTotalBefore = totalGrid;
+         this.pendingExpectedYield = minGridCount * this.pendingYieldPerCraft;
+
          this.pendingBeforeDirectCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
          this.pendingBeforePoolCount = this.pendingBeforeDirectCount;
          this.pendingSlot = 0;
@@ -1128,9 +1194,11 @@ public class AutoCraft extends Module {
       }
       Map<Item, Integer> tablePool = BackpackAdapter.getSourcePool(menu, tableSourceSlots);
       int maxTableBatch = CraftRecipeHelper.calculateMaxCraftsFromPool(this.activeRecipe, tablePool);
-      int tableYield = CraftRecipeHelper.getResultCount(this.activeRecipe);
-      int tableCraftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / Math.max(1, tableYield));
-      int tableBatchCount = Math.min(maxTableBatch, tableCraftsNeeded);
+      int tableYield = Math.max(1, CraftRecipeHelper.getResultCount(this.activeRecipe));
+      int tableCraftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / tableYield);
+      int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.currentTask.item);
+      int maxHoldableCrafts = Math.max(1, freeSpace / tableYield);
+      int tableBatchCount = Math.min(maxTableBatch, Math.min(tableCraftsNeeded, maxHoldableCrafts));
 
       if (tableBatchCount <= 0) {
          BackpackAdapter.clearGrid(menu, 1, table3x3 ? 9 : 4);
@@ -1206,6 +1274,26 @@ public class AutoCraft extends Module {
 
       int actuallyGained = Math.max(directGained, poolGained);
 
+      // Check current grid state to measure consumed ingredients
+      int currentGridTotal = 0;
+      if (menu != null) {
+         if (this.pendingIsBackpack && BackpackAdapter.isBackpackMenu(menu)) {
+            BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
+            if (info.gridStart != -1 && info.gridEnd != -1) {
+               for (int s = info.gridStart; s <= info.gridEnd && s < menu.slots.size(); s++) {
+                  currentGridTotal += menu.getSlot(s).getItem().getCount();
+               }
+            }
+         } else {
+            int gEnd = (menu instanceof CraftingMenu) ? 9 : 4;
+            for (int s = 1; s <= gEnd && s < menu.slots.size(); s++) {
+               currentGridTotal += menu.getSlot(s).getItem().getCount();
+            }
+         }
+      }
+
+      int gridDepleted = Math.max(0, this.pendingGridTotalBefore - currentGridTotal);
+
       // Check 1: Direct inventory or backpack storage count increased
       if (actuallyGained > 0) {
          this.consecutiveExhaustions = 0;
@@ -1214,11 +1302,14 @@ public class AutoCraft extends Module {
          this.currentTask.remainingCount -= actuallyGained;
          this.info("Crafted (highlight)%dx %s(default) (remaining: %d).",
             actuallyGained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
+
+         this.settleTargetItem = this.pendingCraftItem;
+         this.settleTargetBeforeCount = this.pendingBeforeDirectCount;
          clearPendingCraft();
 
          if (this.currentTask.remainingCount <= 0) {
             this.currentTask = null;
-            this.settleWaitTicks = 3;
+            this.settleWaitTicks = 6;
             this.state = State.SETTLING;
             this.timer = 1;
          } else {
@@ -1228,22 +1319,31 @@ public class AutoCraft extends Module {
          return;
       }
 
-      // Check 2: Result slot was emptied by server
+      // Check 2: Result slot was emptied by server or grid items were consumed
       if (this.pendingWaitTicks >= 2 && menu != null && this.pendingSlot >= 0 && this.pendingSlot < menu.slots.size()) {
          ItemStack resultItem = menu.getSlot(this.pendingSlot).getItem();
-         if (resultItem.isEmpty()) {
-            int gained = Math.max(1, this.pendingExpectedYield);
+         if (resultItem.isEmpty() || gridDepleted > 0) {
+            int craftsExecuted = this.pendingBatchCount;
+            if (this.pendingGridTotalBefore > 0 && gridDepleted > 0 && this.pendingBatchCount > 0) {
+               int ingPerCraft = Math.max(1, this.pendingGridTotalBefore / this.pendingBatchCount);
+               craftsExecuted = Math.min(this.pendingBatchCount, Math.max(1, gridDepleted / ingPerCraft));
+            }
+            int gained = Math.max(1, craftsExecuted * Math.max(1, this.pendingYieldPerCraft));
+
             this.consecutiveExhaustions = 0;
             this.craftRetryTicks = 0;
             this.gridResultWaitTicks = 0;
             this.currentTask.remainingCount -= gained;
             this.info("Crafted (highlight)%dx %s(default) via server sync (remaining: %d).",
                gained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
+
+            this.settleTargetItem = this.pendingCraftItem;
+            this.settleTargetBeforeCount = this.pendingBeforeDirectCount;
             clearPendingCraft();
 
             if (this.currentTask.remainingCount <= 0) {
                this.currentTask = null;
-               this.settleWaitTicks = 3;
+               this.settleWaitTicks = 6;
                this.state = State.SETTLING;
                this.timer = 1;
             } else {
@@ -1288,8 +1388,22 @@ public class AutoCraft extends Module {
 
    private void handleSettling() {
       this.settleWaitTicks--;
+
+      // Adaptive check: if newly crafted items have already appeared in inventory, settle immediately
+      if (this.settleTargetItem != null) {
+         int currentCount = CraftRecipeHelper.countInInventory(this.settleTargetItem);
+         if (currentCount > this.settleTargetBeforeCount) {
+            this.settleWaitTicks = 0;
+            this.settleTargetItem = null;
+            this.state = State.RESOLVING;
+            this.timer = 0;
+            return;
+         }
+      }
+
       if (this.settleWaitTicks <= 0) {
          this.settleWaitTicks = 0;
+         this.settleTargetItem = null;
          this.state = State.RESOLVING;
          this.timer = 1;
       }
@@ -1393,7 +1507,7 @@ public class AutoCraft extends Module {
          Ingredient ing = grid[i];
          if (ing != null && !ing.isEmpty()) {
             ItemStack inSlot = menu.getSlot(info.gridStart + i).getItem();
-            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() < batchCount) {
+            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() != batchCount) {
                return GridPlaceResult.INGREDIENTS_DEPLETED;
             }
          }
@@ -1504,7 +1618,7 @@ public class AutoCraft extends Module {
          Ingredient ing = grid[i];
          if (ing != null && !ing.isEmpty()) {
             ItemStack inSlot = menu.getSlot(gridOffset + i).getItem();
-            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() < batchCount) {
+            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() != batchCount) {
                return GridPlaceResult.INGREDIENTS_DEPLETED;
             }
          }
