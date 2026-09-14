@@ -14,8 +14,13 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.core.particles.ParticleType;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.protocol.game.*;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
@@ -73,8 +78,8 @@ public class AntiVanish extends Module {
     private final Setting<Boolean> particleSensor = this.sgSensors.add(
         new BoolSetting.Builder()
             .name("particle-sensor")
-            .description("Detects suspicious ghost particles with no visible entities nearby.")
-            .defaultValue(true)
+            .description("Detects suspicious potion swirls with no visible entities nearby (Experimental).")
+            .defaultValue(false)
             .build()
     );
 
@@ -97,6 +102,7 @@ public class AntiVanish extends Module {
     private final Map<UUID, String> knownPlayers = new ConcurrentHashMap<>();
     private final Map<String, Long> regularDepartures = new ConcurrentHashMap<>();
     private final Set<String> detectedVanished = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Map<String, Long> alertCooldowns = new ConcurrentHashMap<>();
     private int ticksPassed = 0;
     private int activeProbeId = -1;
 
@@ -119,6 +125,7 @@ public class AntiVanish extends Module {
         knownPlayers.clear();
         regularDepartures.clear();
         detectedVanished.clear();
+        alertCooldowns.clear();
         ticksPassed = 0;
         activeProbeId = -1;
     }
@@ -141,9 +148,10 @@ public class AntiVanish extends Module {
 
         ticksPassed++;
 
-        // Clean up expired departure timestamps (older than 10 seconds)
+        // Clean up expired departure timestamps and alert cooldowns (older than 10 seconds)
         long now = System.currentTimeMillis();
         regularDepartures.entrySet().removeIf(entry -> now - entry.getValue() > 10000L);
+        alertCooldowns.entrySet().removeIf(entry -> now - entry.getValue() > 10000L);
 
         // Update known players periodic snapshot
         if (ticksPassed % 20 == 0) {
@@ -234,33 +242,84 @@ public class AntiVanish extends Module {
 
         // 4. Sound Sensor
         if (soundSensor.get() && event.packet instanceof ClientboundSoundPacket sound) {
-            Vec3 pos = new Vec3(sound.getX(), sound.getY(), sound.getZ());
-            checkSuspiciousActivity(pos, "Suspicious sound");
+            checkSuspiciousSound(sound);
         }
 
         // 5. Particle Sensor
         if (particleSensor.get() && event.packet instanceof ClientboundLevelParticlesPacket particles) {
-            Vec3 pos = new Vec3(particles.getX(), particles.getY(), particles.getZ());
-            checkSuspiciousActivity(pos, "Suspicious ghost particles");
+            checkSuspiciousParticles(particles);
         }
     }
 
-    private void checkSuspiciousActivity(Vec3 pos, String reason) {
-        if (mc.level == null || mc.player == null) return;
-        if (mc.player.position().distanceTo(pos) < 3.0) return; // Player's own action
+    private static boolean isSuspiciousBlockSound(String soundPath) {
+        if (soundPath.contains("chest.open") || soundPath.contains("chest.close")) return true;
+        if (soundPath.contains("shulker_box.open") || soundPath.contains("shulker_box.close")) return true;
+        if (soundPath.contains("barrel.open") || soundPath.contains("barrel.close")) return true;
+        if (soundPath.contains("door.open") || soundPath.contains("door.close")) return true;
+        if (soundPath.contains("trapdoor.open") || soundPath.contains("trapdoor.close")) return true;
+        if (soundPath.contains("fence_gate.open") || soundPath.contains("fence_gate.close")) return true;
+        return false;
+    }
 
-        // Check if any visible player is within 6 blocks of the emission
-        boolean visiblePlayerNearby = false;
-        for (Player other : mc.level.players()) {
-            if (other != mc.player && other.position().distanceTo(pos) < 6.0 && !other.isInvisible()) {
-                visiblePlayerNearby = true;
-                break;
+    private void checkSuspiciousSound(ClientboundSoundPacket sound) {
+        if (mc.level == null || mc.player == null) return;
+
+        SoundSource source = sound.getSource();
+        // Ignore ambient, hostile mobs, neutral animals, weather, music, etc.
+        if (source != SoundSource.PLAYERS && source != SoundSource.BLOCKS) return;
+
+        Vec3 pos = new Vec3(sound.getX(), sound.getY(), sound.getZ());
+        if (mc.player.position().distanceTo(pos) < 3.0 || mc.player.position().distanceTo(pos) > 48.0) return;
+
+        // Check if any visible entity is near the sound emission
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity != mc.player && entity.position().distanceTo(pos) < 6.0 && !entity.isInvisible()) {
+                return; // Normal visible entity or player nearby
             }
         }
 
-        if (!visiblePlayerNearby && mc.player.position().distanceTo(pos) < 48.0) {
-            String coord = String.format("(%.0f, %.0f, %.0f)", pos.x, pos.y, pos.z);
-            flagVanish("Unknown Entity", reason + " at " + coord);
+        String soundPath = ((SoundEvent) sound.getSound().value()).getLocation().getPath().toLowerCase(Locale.ROOT);
+
+        if (source == SoundSource.BLOCKS) {
+            if (!isSuspiciousBlockSound(soundPath)) return;
+            flagSuspiciousActivity("Unseen container interaction", soundPath, pos);
+        } else {
+            flagSuspiciousActivity("Unseen player sound", soundPath, pos);
+        }
+    }
+
+    private void checkSuspiciousParticles(ClientboundLevelParticlesPacket particles) {
+        if (mc.level == null || mc.player == null) return;
+
+        ParticleType<?> type = particles.getParticle().getType();
+        if (type != ParticleTypes.ENTITY_EFFECT && type != ParticleTypes.INSTANT_EFFECT) return;
+
+        Vec3 pos = new Vec3(particles.getX(), particles.getY(), particles.getZ());
+        if (mc.player.position().distanceTo(pos) < 3.0 || mc.player.position().distanceTo(pos) > 48.0) return;
+
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity != mc.player && entity.position().distanceTo(pos) < 6.0 && !entity.isInvisible()) {
+                return;
+            }
+        }
+
+        flagSuspiciousActivity("Unseen potion effect", "potion swirls", pos);
+    }
+
+    private void flagSuspiciousActivity(String alertType, String details, Vec3 pos) {
+        long now = System.currentTimeMillis();
+        String chunkKey = alertType + ":" + ((int) Math.floor(pos.x / 16.0)) + ":" + ((int) Math.floor(pos.z / 16.0));
+        Long last = alertCooldowns.get(chunkKey);
+        if (last != null && (now - last) < 10000L) return;
+        alertCooldowns.put(chunkKey, now);
+
+        String coord = String.format("(%.0f, %.0f, %.0f)", pos.x, pos.y, pos.z);
+        if (chatAlerts.get()) {
+            warning("[AntiVanish] " + alertType + ": " + details + " at " + coord);
+        }
+
+        if (alertSound.get() && mc.getSoundManager() != null) {
+            mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_PLING.value(), 1.6F, 1.0F));
         }
     }
 
