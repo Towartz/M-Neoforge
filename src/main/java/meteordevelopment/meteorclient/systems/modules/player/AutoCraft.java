@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.screens.AutoCraftScreen;
@@ -170,6 +171,7 @@ public class AutoCraft extends Module {
    private int chestWaitTicks = 0;
    private int backpackTabWaitTicks = 0;
    private int navWaitTicks = 0;
+   private int craftRetryTicks = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -196,6 +198,7 @@ public class AutoCraft extends Module {
       this.chestWaitTicks = 0;
       this.backpackTabWaitTicks = 0;
       this.navWaitTicks = 0;
+      this.craftRetryTicks = 0;
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
    }
@@ -353,9 +356,36 @@ public class AutoCraft extends Module {
          return;
       }
 
+      int emptySlots = CraftRecipeHelper.getEmptyInventorySlots();
+      int directCrafts = CraftRecipeHelper.getDirectCraftsPossible(this.activeRecipe);
+
+      // Reserve at least 1 slot for crafting output unless direct crafts are possible
+      if (emptySlots <= 1) {
+         if (directCrafts > 0) {
+            this.info("Inventory full, but enough materials for %d craft(s). Proceeding to craft...", directCrafts);
+            this.mc.player.closeContainer();
+            this.timer = this.craftDelay.get() + 2;
+            this.state = State.RESOLVING;
+            return;
+         }
+
+         // Try to offload non-essential items into backpack storage to make room
+         int freed = BackpackAdapter.depositExcept(menu, neededInDirect.keySet());
+         if (freed > 0) {
+            this.info("Offloaded %d items to backpack to make inventory room.", freed);
+            this.timer = this.craftDelay.get() + 2;
+            return;
+         }
+      }
+
       BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
       int storageStart = info.storageStart != -1 ? info.storageStart : 0;
       int storageEnd = info.storageEnd != -1 ? info.storageEnd : Math.max(0, menu.slots.size() - 37);
+
+      // Also check if we need a crafting table retrieved from backpack
+      boolean needTable = !CraftRecipeHelper.is2x2(this.activeRecipe)
+         && !InvUtils.find(Items.CRAFTING_TABLE).found()
+         && BackpackAdapter.hasItemInBackpack(Items.CRAFTING_TABLE);
 
       boolean withdrewAny = false;
       for (int i = storageStart; i <= Math.min(storageEnd, menu.slots.size() - 1); i++) {
@@ -363,7 +393,20 @@ public class AutoCraft extends Module {
          ItemStack stack = slot.getItem();
          if (stack.isEmpty()) continue;
 
-         if (neededInDirect.containsKey(stack.getItem())) {
+         boolean isNeededIngredient = neededInDirect.containsKey(stack.getItem());
+         boolean isTable = needTable && stack.is(Items.CRAFTING_TABLE);
+
+         if (isNeededIngredient || isTable) {
+            int currentEmpty = CraftRecipeHelper.getEmptyInventorySlots();
+            int freeSpaceInStack = CraftRecipeHelper.getFreeSpaceFor(stack.getItem());
+            if (currentEmpty <= 1 && freeSpaceInStack < stack.getCount() && directCrafts > 0) {
+               this.info("Preserving inventory room for craft output. Executing sub-batch craft...");
+               this.mc.player.closeContainer();
+               this.timer = this.craftDelay.get() + 2;
+               this.state = State.RESOLVING;
+               return;
+            }
+
             InvUtils.shiftClick().slotId(i);
             this.info("Withdrew (highlight)%dx %s(default) from backpack.", stack.getCount(), stack.getHoverName().getString());
             withdrewAny = true;
@@ -373,10 +416,8 @@ public class AutoCraft extends Module {
       }
 
       if (!withdrewAny) {
-         // Could not withdraw more items (e.g. inventory full)
-         // Can we at least craft 1 item with what we currently have?
-         if (CraftRecipeHelper.canSatisfyDirect(this.activeRecipe, 1)) {
-            this.info("Inventory full, but enough materials for partial craft. Proceeding...");
+         if (CraftRecipeHelper.getDirectCraftsPossible(this.activeRecipe) > 0) {
+            this.info("Enough materials in direct inventory for partial craft. Proceeding...");
             this.mc.player.closeContainer();
             this.timer = this.craftDelay.get() + 2;
             this.state = State.RESOLVING;
@@ -410,8 +451,9 @@ public class AutoCraft extends Module {
       Map<Item, Integer> missing = CraftRecipeHelper.getMissingItems(this.activeRecipe, craftsNeeded);
 
       if (missing.isEmpty()) {
-         // All ingredients available (either in direct inventory or backpack)!
-         boolean hasDirect = CraftRecipeHelper.hasAllInDirectInventory(this.activeRecipe, craftsNeeded);
+         // All ingredients available (either across direct inventory or backpack)!
+         int directCrafts = CraftRecipeHelper.getDirectCraftsPossible(this.activeRecipe);
+         boolean canCraftDirect = directCrafts > 0;
          boolean is2x2 = CraftRecipeHelper.is2x2(this.activeRecipe);
 
          // 1. If preferBackpack is enabled and crafting-capable backpack is available, prefer backpack crafting!
@@ -435,13 +477,7 @@ public class AutoCraft extends Module {
             }
          }
 
-         if (is2x2 && hasDirect) {
-            // Player has all materials in direct inventory and recipe fits 2x2 grid -> craft directly!
-            this.state = State.CRAFTING;
-            return;
-         }
-
-         // If backpack menu is already open:
+         // 2. If already in a backpack menu:
          if (BackpackAdapter.isBackpackMenu(this.mc.player.containerMenu)) {
             BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(this.mc.player.containerMenu);
             if (info.valid && info.resultSlot != -1) {
@@ -450,36 +486,45 @@ public class AutoCraft extends Module {
             } else if (BackpackAdapter.hasCraftingUpgrade(this.mc.player.containerMenu)) {
                this.state = State.OPENING_BACKPACK;
                return;
-            } else if (!hasDirect) {
+            } else if (canCraftDirect) {
+               this.mc.player.closeContainer();
+               this.timer = this.craftDelay.get() + 2;
+               this.state = State.RESOLVING;
+               return;
+            } else {
                this.state = State.WITHDRAWING_FROM_BACKPACK;
                return;
             }
          }
 
-         // If at a vanilla crafting table and all ingredients are in direct inventory, craft directly
-         if (this.mc.player.containerMenu instanceof CraftingMenu && hasDirect) {
+         // 3. If recipe fits 2x2 player grid and direct inventory can craft at least one sub-batch:
+         if (is2x2 && canCraftDirect) {
             this.state = State.CRAFTING;
             return;
          }
 
-         // If materials are in backpack: open backpack to withdraw or craft!
-         if (!hasDirect) {
-            if (BackpackAdapter.hasPortableCraftingAvailable()) {
-               if (BackpackAdapter.openPortableCrafting()) {
-                  this.timer = this.craftDelay.get() + 3;
-                  this.state = State.OPENING_BACKPACK;
-                  this.chestWaitTicks = 0;
-                  this.backpackTabWaitTicks = 0;
-                  this.info("Opening backpack to retrieve crafting materials...");
-                  return;
-               }
+         // 4. If at a vanilla crafting table and direct inventory can craft at least one sub-batch:
+         if (this.mc.player.containerMenu instanceof CraftingMenu && canCraftDirect) {
+            this.state = State.CRAFTING;
+            return;
+         }
+
+         // 5. If direct inventory cannot even craft 1 item, retrieve materials from backpack:
+         if (!canCraftDirect) {
+            if (BackpackAdapter.hasPortableCraftingAvailable() && BackpackAdapter.openPortableCrafting()) {
+               this.timer = this.craftDelay.get() + 3;
+               this.state = State.OPENING_BACKPACK;
+               this.chestWaitTicks = 0;
+               this.backpackTabWaitTicks = 0;
+               this.info("Opening backpack to retrieve crafting materials...");
+               return;
             }
             this.error("Materials for (highlight)%s(default) are in backpack, but backpack could not be opened.", this.currentTask.item.getDescription().getString());
             this.cancelTask();
             return;
          }
 
-         // All materials are in direct inventory, but recipe needs 3x3 table:
+         // 6. Direct inventory can craft (canCraftDirect is true), but recipe needs 3x3 table:
          // If portable backpack with crafting upgrade is preferred and available:
          if (this.preferBackpack.get() && BackpackAdapter.hasCraftingCapableBackpack()) {
             if (BackpackAdapter.openPortableCrafting()) {
@@ -492,29 +537,22 @@ public class AutoCraft extends Module {
             }
          }
 
-         // If materials are in direct inventory and 3x3 table is needed:
-         if (hasDirect) {
-            // Check if crafting table already in reach
-            BlockPos nearbyTable = findNearbyTable(16);
-            if (nearbyTable != null) {
-               this.tablePos = nearbyTable;
-               if (ContainerSearcher.isWithinReach(nearbyTable)) {
-                  this.state = State.OPENING_TABLE;
-               } else if (this.autoWalk.get() && BaritoneUtils.IS_AVAILABLE) {
-                  ContainerSearcher.navigateTo(nearbyTable);
-                  this.state = State.NAVIGATING_TO_TABLE;
-               } else {
-                  this.state = State.OPENING_TABLE;
-               }
-            } else if (this.autoCraftingTable.get()) {
-               this.state = State.CRAFTING_TABLE_PLACING;
+         // Check if crafting table already in reach
+         BlockPos nearbyTable = findNearbyTable(16);
+         if (nearbyTable != null) {
+            this.tablePos = nearbyTable;
+            if (ContainerSearcher.isWithinReach(nearbyTable)) {
+               this.state = State.OPENING_TABLE;
+            } else if (this.autoWalk.get() && BaritoneUtils.IS_AVAILABLE) {
+               ContainerSearcher.navigateTo(nearbyTable);
+               this.state = State.NAVIGATING_TO_TABLE;
             } else {
-               this.error("Crafting Table required for (highlight)%s(default) but none found.", this.currentTask.item.getDescription().getString());
-               this.cancelTask();
+               this.state = State.OPENING_TABLE;
             }
+         } else if (this.autoCraftingTable.get()) {
+            this.state = State.CRAFTING_TABLE_PLACING;
          } else {
-            // Materials are in backpack, but portable backpack could not be opened
-            this.error("Materials for (highlight)%s(default) are in backpack, but backpack could not be opened.", this.currentTask.item.getDescription().getString());
+            this.error("Crafting Table required for (highlight)%s(default) but none found.", this.currentTask.item.getDescription().getString());
             this.cancelTask();
          }
          return;
@@ -647,6 +685,17 @@ public class AutoCraft extends Module {
    private void handlePlacingTable() {
       FindItemResult tableItem = InvUtils.find(Items.CRAFTING_TABLE);
       if (!tableItem.found()) {
+         // Check if a Crafting Table is stored inside an equipped or held backpack
+         if (BackpackAdapter.hasItemInBackpack(Items.CRAFTING_TABLE)) {
+            if (BackpackAdapter.openPortableCrafting()) {
+               this.info("Crafting Table found in backpack. Opening backpack to retrieve it...");
+               this.timer = this.craftDelay.get() + 3;
+               this.state = State.OPENING_BACKPACK;
+               this.chestWaitTicks = 0;
+               return;
+            }
+         }
+
          // Can we craft a crafting table?
          RecipeHolder<CraftingRecipe> ctRecipe = CraftRecipeHelper.findBestRecipe(Items.CRAFTING_TABLE);
          if (ctRecipe != null && CraftRecipeHelper.canSatisfyRecursive(ctRecipe, 1, 3)) {
@@ -752,18 +801,32 @@ public class AutoCraft extends Module {
                int expectedYield = currentResult.getCount();
                int beforeCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
                InvUtils.shiftClick().slotId(info.resultSlot);
+               BackpackAdapter.clearCache();
                int afterCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
                int actuallyCrafted = afterCount - beforeCount;
                if (actuallyCrafted <= 0) {
                   if (menu.getSlot(info.resultSlot).getItem().isEmpty()) {
                      actuallyCrafted = expectedYield;
                   } else {
+                     int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.currentTask.item);
+                     if (freeSpace > 0 && this.craftRetryTicks < 3) {
+                        this.craftRetryTicks++;
+                        this.timer = 2;
+                        return;
+                     }
+                     int deposited = BackpackAdapter.depositItemToBackpack(menu, this.currentTask.item);
+                     if (deposited > 0) {
+                        this.craftRetryTicks = 0;
+                        this.timer = this.craftDelay.get();
+                        return;
+                     }
                      this.error("Inventory full: cannot collect crafted item from backpack.");
                      this.cancelTask();
                      return;
                   }
                }
 
+               this.craftRetryTicks = 0;
                this.currentTask.remainingCount -= actuallyCrafted;
                this.info("Crafted (highlight)%dx %s(default) via backpack (remaining: %d).", actuallyCrafted, this.currentTask.item.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
                this.timer = this.craftDelay.get();
@@ -819,18 +882,34 @@ public class AutoCraft extends Module {
          int expectedYield = currentResult.getCount();
          int beforeCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
          InvUtils.shiftClick().slotId(0);
+         BackpackAdapter.clearCache();
          int afterCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
          int actuallyCrafted = afterCount - beforeCount;
          if (actuallyCrafted <= 0) {
             if (menu.getSlot(0).getItem().isEmpty()) {
                actuallyCrafted = expectedYield;
             } else {
+               int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.currentTask.item);
+               if (freeSpace > 0 && this.craftRetryTicks < 3) {
+                  this.craftRetryTicks++;
+                  this.timer = 2;
+                  return;
+               }
+               if (BackpackAdapter.isWearingBackpack() || BackpackAdapter.findBackpackInInventory().found()) {
+                  this.info("Inventory full: offloading items to backpack storage...");
+                  this.mc.player.closeContainer();
+                  this.timer = this.craftDelay.get() + 2;
+                  this.state = State.OPENING_BACKPACK;
+                  this.craftRetryTicks = 0;
+                  return;
+               }
                this.error("Inventory full: cannot collect crafted item.");
                this.cancelTask();
                return;
             }
          }
 
+         this.craftRetryTicks = 0;
          this.currentTask.remainingCount -= actuallyCrafted;
          this.info("Crafted (highlight)%dx %s(default) (remaining: %d).", actuallyCrafted, this.currentTask.item.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
          this.timer = this.craftDelay.get();
@@ -869,9 +948,20 @@ public class AutoCraft extends Module {
             }
             InvUtils.shiftClick().slotId(targetSlot);
             if (menu.getSlot(targetSlot).hasItem()) {
-               this.error("Inventory/backpack full: unable to clear crafting grid slot.");
-               this.cancelTask();
-               return;
+               if (info.storageStart != -1 && info.storageEnd != -1) {
+                  for (int s = info.storageStart; s <= info.storageEnd && s < menu.slots.size(); s++) {
+                     if (menu.slots.get(s).getItem().isEmpty()) {
+                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
+                        break;
+                     }
+                  }
+               }
+               if (menu.getSlot(targetSlot).hasItem()) {
+                  this.error("Inventory/backpack full: unable to clear crafting grid slot.");
+                  this.cancelTask();
+                  return;
+               }
             }
          }
 
@@ -935,9 +1025,23 @@ public class AutoCraft extends Module {
             }
             InvUtils.shiftClick().slotId(targetSlot);
             if (menu.getSlot(targetSlot).hasItem()) {
-               this.error("Inventory full: unable to clear crafting grid slot.");
-               this.cancelTask();
-               return;
+               ItemStack gridItem = menu.getSlot(targetSlot).getItem();
+               for (int s = invStart; s < menu.slots.size(); s++) {
+                  ItemStack sStack = menu.getSlot(s).getItem();
+                  if (sStack.is(gridItem.getItem()) && sStack.getCount() < sStack.getMaxStackSize()) {
+                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
+                     if (!menu.getCarried().isEmpty()) {
+                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+                     }
+                     break;
+                  }
+               }
+               if (menu.getSlot(targetSlot).hasItem()) {
+                  this.error("Inventory full: unable to clear crafting grid slot.");
+                  this.cancelTask();
+                  return;
+               }
             }
          }
 

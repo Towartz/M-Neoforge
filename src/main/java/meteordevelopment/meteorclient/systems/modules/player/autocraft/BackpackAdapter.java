@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
@@ -882,5 +883,63 @@ public class BackpackAdapter {
          }
       }
       return false;
+   }
+
+   public static boolean hasItemInBackpack(Item item) {
+      if (item == null) return false;
+      return countInAllBackpacks(item) > 0;
+   }
+
+   public static int depositItemToBackpack(AbstractContainerMenu menu, Item item) {
+      if (menu == null || !isBackpackMenu(menu) || item == null) return 0;
+      int moved = 0;
+      for (int i = 0; i < menu.slots.size(); i++) {
+         Slot slot = menu.slots.get(i);
+         if (slot.container instanceof net.minecraft.world.entity.player.Inventory) {
+            ItemStack stack = slot.getItem();
+            if (!stack.isEmpty() && stack.is(item)) {
+               int countBefore = stack.getCount();
+               InvUtils.shiftClick().slotId(i);
+               int countAfter = slot.getItem().getCount();
+               if (countAfter < countBefore) {
+                  moved += (countBefore - countAfter);
+               } else {
+                  break;
+               }
+            }
+         }
+      }
+      if (moved > 0) {
+         clearCache();
+      }
+      return moved;
+   }
+
+   public static int depositExcept(AbstractContainerMenu menu, Set<Item> preserveItems) {
+      if (menu == null || !isBackpackMenu(menu)) return 0;
+      int moved = 0;
+      for (int i = 0; i < menu.slots.size(); i++) {
+         Slot slot = menu.slots.get(i);
+         if (slot.container instanceof net.minecraft.world.entity.player.Inventory) {
+            int invSlot = slot.getContainerSlot();
+            // Preserve hotbar slots 0..8 so player retains tools and food
+            if (invSlot < 9 || invSlot > 35) continue;
+            ItemStack stack = slot.getItem();
+            if (!stack.isEmpty() && (preserveItems == null || !preserveItems.contains(stack.getItem()))) {
+               int countBefore = stack.getCount();
+               InvUtils.shiftClick().slotId(i);
+               int countAfter = slot.getItem().getCount();
+               if (countAfter < countBefore) {
+                  moved += (countBefore - countAfter);
+               } else {
+                  break;
+               }
+            }
+         }
+      }
+      if (moved > 0) {
+         clearCache();
+      }
+      return moved;
    }
 }

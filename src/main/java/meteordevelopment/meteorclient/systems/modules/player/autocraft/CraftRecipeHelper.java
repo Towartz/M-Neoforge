@@ -489,6 +489,65 @@ public class CraftRecipeHelper {
    }
 
    /**
+    * Calculates the maximum number of crafts of the given recipe that can be performed
+    * using only the items currently available in the player's direct inventory.
+    * Uses a monotonic binary search over [0, 36 * 64].
+    */
+   public static int getDirectCraftsPossible(RecipeHolder<CraftingRecipe> holder) {
+      if (holder == null || MeteorClient.mc.player == null) return 0;
+      if (!hasAllInDirectInventory(holder, 1)) return 0;
+
+      int low = 1;
+      int high = 36 * 64;
+      int best = 1;
+
+      while (low <= high) {
+         int mid = (low + high) >>> 1;
+         if (hasAllInDirectInventory(holder, mid)) {
+            best = mid;
+            low = mid + 1;
+         } else {
+            high = mid - 1;
+         }
+      }
+      return best;
+   }
+
+   /**
+    * Returns the number of empty slots in the player's direct inventory (hotbar + main storage, slots 0..35).
+    */
+   public static int getEmptyInventorySlots() {
+      if (MeteorClient.mc.player == null) return 0;
+      Inventory inv = MeteorClient.mc.player.getInventory();
+      int empty = 0;
+      for (int i = 0; i < 36; i++) {
+         if (inv.getItem(i).isEmpty()) {
+            empty++;
+         }
+      }
+      return empty;
+   }
+
+   /**
+    * Returns how many more units of the given item can fit into the player's direct inventory.
+    */
+   public static int getFreeSpaceFor(Item item) {
+      if (MeteorClient.mc.player == null || item == null) return 0;
+      Inventory inv = MeteorClient.mc.player.getInventory();
+      int maxStack = item.getDefaultInstance().getMaxStackSize();
+      int freeSpace = 0;
+      for (int i = 0; i < 36; i++) {
+         ItemStack stack = inv.getItem(i);
+         if (stack.isEmpty()) {
+            freeSpace += maxStack;
+         } else if (stack.is(item)) {
+            freeSpace += Math.max(0, maxStack - stack.getCount());
+         }
+      }
+      return freeSpace;
+   }
+
+   /**
     * Returns the array of Ingredients for grid positions:
     * For 3x3: indices 0..8 (row 0: 0,1,2; row 1: 3,4,5; row 2: 6,7,8)
     * For 2x2: indices 0..3 (row 0: 0,1; row 1: 2,3)
