@@ -147,7 +147,7 @@ public class CraftRecipeHelper {
 
          int haveSource = (pool != null)
             ? pool.getOrDefault(source, 0)
-            : (countInInventory(source) + BackpackAdapter.countInAllBackpacks(source));
+            : countInInventory(source);
          if (haveSource > 0 && haveSource > bestCount) {
             best = holder;
             bestCount = haveSource;

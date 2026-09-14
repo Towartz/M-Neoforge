@@ -205,6 +205,9 @@ public class AutoCraft extends Module {
    private int settleWaitTicks = 0;
    private Item settleTargetItem = null;
    private int settleTargetBeforeCount = 0;
+   private Item lastResolvedItem = null;
+   private int lastResolvedRemaining = -1;
+   private int resolutionAttempts = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -237,6 +240,9 @@ public class AutoCraft extends Module {
       this.settleWaitTicks = 0;
       this.settleTargetItem = null;
       this.settleTargetBeforeCount = 0;
+      this.lastResolvedItem = null;
+      this.lastResolvedRemaining = -1;
+      this.resolutionAttempts = 0;
       clearPendingCraft();
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
@@ -556,27 +562,25 @@ public class AutoCraft extends Module {
          this.containerSearcher.reset();
       }
 
+      // Circuit breaker: detect if the same task is being re-resolved repeatedly without craft progress
+      if (this.currentTask.item == this.lastResolvedItem && this.currentTask.remainingCount == this.lastResolvedRemaining) {
+         this.resolutionAttempts++;
+         if (this.resolutionAttempts >= 3) {
+            this.error("Craft tree resolution loop detected for %s. Aborting craft.", this.currentTask.item.getDescription().getString());
+            this.cancelTask();
+            return;
+         }
+      } else {
+         this.lastResolvedItem = this.currentTask.item;
+         this.lastResolvedRemaining = this.currentTask.remainingCount;
+         this.resolutionAttempts = 0;
+      }
+
       this.activeRecipe = CraftRecipeHelper.findBestRecipe(this.currentTask.item);
       if (this.activeRecipe == null) {
          this.error("No crafting recipe found for (highlight)%s(default).", this.currentTask.item.getDescription().getString());
          this.currentTask = null;
          return;
-      }
-
-      // If this was a prerequisite task, check if the parent deficit is already satisfied
-      if (this.currentTask.targetDeficit > 0) {
-         int onHand = CraftRecipeHelper.countInInventory(this.currentTask.item)
-            + (BackpackAdapter.isBackpackMenu(this.mc.player.containerMenu)
-               ? BackpackAdapter.countInAllBackpacks(this.currentTask.item)
-               : 0);
-         if (onHand >= this.currentTask.targetDeficit) {
-            this.info("Prerequisite requirement for %s satisfied (%d on hand). Proceeding to parent craft...",
-               this.currentTask.item.getDescription().getString(), onHand);
-            this.currentTask = null;
-            this.state = State.RESOLVING;
-            this.timer = 1;
-            return;
-         }
       }
 
       int yield = CraftRecipeHelper.getResultCount(this.activeRecipe);
@@ -601,7 +605,7 @@ public class AutoCraft extends Module {
 
             for (int i = prereqs.size() - 1; i >= 0; i--) {
                CraftPlanner.CraftStep step = prereqs.get(i);
-               this.queue.add(0, new CraftTask(step.resultItem, step.yieldProduced, step.deficitNeeded));
+               this.queue.add(0, new CraftTask(step.resultItem, step.deficitNeeded));
             }
 
             this.info("Craft tree resolved: (highlight)%d step(s)(default) for %s.",
@@ -1299,6 +1303,7 @@ public class AutoCraft extends Module {
          this.consecutiveExhaustions = 0;
          this.craftRetryTicks = 0;
          this.gridResultWaitTicks = 0;
+         this.resolutionAttempts = 0;
          this.currentTask.remainingCount -= actuallyGained;
          this.info("Crafted (highlight)%dx %s(default) (remaining: %d).",
             actuallyGained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
@@ -1333,6 +1338,7 @@ public class AutoCraft extends Module {
             this.consecutiveExhaustions = 0;
             this.craftRetryTicks = 0;
             this.gridResultWaitTicks = 0;
+            this.resolutionAttempts = 0;
             this.currentTask.remainingCount -= gained;
             this.info("Crafted (highlight)%dx %s(default) via server sync (remaining: %d).",
                gained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
