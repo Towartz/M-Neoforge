@@ -1077,7 +1077,7 @@ public class AutoCraft extends Module {
 
             if (gridHasItems) {
                this.gridResultWaitTicks++;
-               if (this.gridResultWaitTicks <= 15) {
+               if (this.gridResultWaitTicks <= 30) {
                   this.timer = 2;
                   return;
                }
@@ -1113,7 +1113,10 @@ public class AutoCraft extends Module {
 
             // Populate backpack crafting grid with batchCount items per slot
             GridPlaceResult placeRes = placeBackpackGrid(menu, info, this.activeRecipe, batchCount);
-            if (placeRes == GridPlaceResult.INGREDIENTS_DEPLETED) {
+            ItemStack afterBackpackPlace = menu.getSlot(info.resultSlot).getItem();
+            if (!afterBackpackPlace.isEmpty() && afterBackpackPlace.is(this.currentTask.item)) {
+               this.gridResultWaitTicks = 0;
+            } else if (placeRes == GridPlaceResult.INGREDIENTS_DEPLETED) {
                if (this.currentTask.remainingCount > 0) {
                   BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
                   this.info("Backpack crafting materials exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
@@ -1127,7 +1130,7 @@ public class AutoCraft extends Module {
                return;
             } else {
                this.gridResultWaitTicks++;
-               if (this.gridResultWaitTicks > 12) {
+               if (this.gridResultWaitTicks > 30) {
                   this.warning("Backpack crafting grid result timed out. Resolving next batch...");
                   this.gridResultWaitTicks = 0;
                   this.state = State.RESOLVING;
@@ -1219,7 +1222,7 @@ public class AutoCraft extends Module {
 
       if (tableGridHasItems) {
          this.gridResultWaitTicks++;
-         if (this.gridResultWaitTicks <= 15) {
+         if (this.gridResultWaitTicks <= 30) {
             this.timer = 2;
             return;
          }
@@ -1285,7 +1288,7 @@ public class AutoCraft extends Module {
          return;
       } else {
          this.gridResultWaitTicks++;
-         if (this.gridResultWaitTicks > 12) {
+         if (this.gridResultWaitTicks > 30) {
             this.warning("Crafting grid result timed out. Resolving next batch...");
             if (table3x3 && menu instanceof CraftingMenu) {
                this.mc.player.closeContainer();
@@ -1477,7 +1480,35 @@ public class AutoCraft extends Module {
 
          if (menu.getSlot(targetSlot).hasItem()) {
             ItemStack inSlot = menu.getSlot(targetSlot).getItem();
-            if (!ing.test(inSlot) || inSlot.getCount() > batchCount) {
+            boolean shouldClear = !ing.test(inSlot);
+            if (!shouldClear && inSlot.getCount() < batchCount) {
+               int sameItemInSources = 0;
+               for (int s : sourceSlots) {
+                  if (s == targetSlot) continue;
+                  ItemStack stack = menu.getSlot(s).getItem();
+                  if (!stack.isEmpty() && stack.is(inSlot.getItem())) {
+                     sameItemInSources += stack.getCount();
+                  }
+               }
+               if (inSlot.getCount() + sameItemInSources < batchCount) {
+                  Map<Item, Integer> altCounts = new HashMap<>();
+                  for (int s : sourceSlots) {
+                     if (s == targetSlot) continue;
+                     ItemStack stack = menu.getSlot(s).getItem();
+                     if (!stack.isEmpty() && ing.test(stack) && !stack.is(inSlot.getItem())) {
+                        altCounts.put(stack.getItem(), altCounts.getOrDefault(stack.getItem(), 0) + stack.getCount());
+                     }
+                  }
+                  for (int count : altCounts.values()) {
+                     if (count >= batchCount) {
+                        shouldClear = true;
+                        break;
+                     }
+                  }
+               }
+            }
+
+            if (shouldClear) {
                InvUtils.shiftClick().slotId(targetSlot);
                if (menu.getSlot(targetSlot).hasItem()) {
                   if (info.storageStart != -1 && info.storageEnd != -1) {
@@ -1501,17 +1532,50 @@ public class AutoCraft extends Module {
          int currentInSlot = (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem()))
             ? menu.getSlot(targetSlot).getItem().getCount()
             : 0;
-         int needed = batchCount - currentInSlot;
+         int needed = Math.max(0, batchCount - currentInSlot);
 
-         while (needed > 0) {
-            int foundSource = -1;
+         Item chosenItem = null;
+         if (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem())) {
+            chosenItem = menu.getSlot(targetSlot).getItem().getItem();
+         } else {
+            Map<Item, Integer> candidateCounts = new HashMap<>();
             for (int s : sourceSlots) {
                if (s == targetSlot) continue;
                ItemStack stack = menu.getSlot(s).getItem();
                if (!stack.isEmpty() && ing.test(stack)) {
-                  if (menu.getSlot(targetSlot).hasItem() && !stack.is(menu.getSlot(targetSlot).getItem().getItem())) {
-                     continue;
+                  candidateCounts.put(stack.getItem(), candidateCounts.getOrDefault(stack.getItem(), 0) + stack.getCount());
+               }
+            }
+
+            Item bestFull = null;
+            int bestFullCount = -1;
+            Item bestPartial = null;
+            int bestPartialCount = -1;
+
+            for (Map.Entry<Item, Integer> entry : candidateCounts.entrySet()) {
+               int count = entry.getValue();
+               if (count >= needed) {
+                  if (count > bestFullCount) {
+                     bestFullCount = count;
+                     bestFull = entry.getKey();
                   }
+               } else {
+                  if (count > bestPartialCount) {
+                     bestPartialCount = count;
+                     bestPartial = entry.getKey();
+                  }
+               }
+            }
+
+            chosenItem = (bestFull != null) ? bestFull : bestPartial;
+         }
+
+         while (needed > 0 && chosenItem != null) {
+            int foundSource = -1;
+            for (int s : sourceSlots) {
+               if (s == targetSlot) continue;
+               ItemStack stack = menu.getSlot(s).getItem();
+               if (!stack.isEmpty() && stack.is(chosenItem)) {
                   foundSource = s;
                   break;
                }
@@ -1553,21 +1617,23 @@ public class AutoCraft extends Module {
             int moved = afterInSlot - currentInSlot;
             if (moved <= 0) break;
             currentInSlot = afterInSlot;
-            needed = batchCount - currentInSlot;
+            needed = Math.max(0, batchCount - currentInSlot);
          }
       }
 
+      boolean allFilled = true;
       for (int i = 0; i < grid.length && (info.gridStart + i) <= info.gridEnd; i++) {
          Ingredient ing = grid[i];
          if (ing != null && !ing.isEmpty()) {
             ItemStack inSlot = menu.getSlot(info.gridStart + i).getItem();
-            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() != batchCount) {
-               return GridPlaceResult.INGREDIENTS_DEPLETED;
+            if (inSlot.isEmpty() || !ing.test(inSlot)) {
+               allFilled = false;
+               break;
             }
          }
       }
 
-      return GridPlaceResult.SUCCESS;
+      return allFilled ? GridPlaceResult.SUCCESS : GridPlaceResult.INGREDIENTS_DEPLETED;
    }
 
    private GridPlaceResult placeGridManually(AbstractContainerMenu menu, RecipeHolder<CraftingRecipe> recipe, boolean table3x3, int batchCount) {
@@ -1588,7 +1654,35 @@ public class AutoCraft extends Module {
 
          if (menu.getSlot(targetSlot).hasItem()) {
             ItemStack inSlot = menu.getSlot(targetSlot).getItem();
-            if (!ing.test(inSlot) || inSlot.getCount() > batchCount) {
+            boolean shouldClear = !ing.test(inSlot);
+            if (!shouldClear && inSlot.getCount() < batchCount) {
+               int sameItemInSources = 0;
+               for (int s = invStart; s < menu.slots.size(); s++) {
+                  if (s == targetSlot) continue;
+                  ItemStack stack = menu.getSlot(s).getItem();
+                  if (!stack.isEmpty() && stack.is(inSlot.getItem())) {
+                     sameItemInSources += stack.getCount();
+                  }
+               }
+               if (inSlot.getCount() + sameItemInSources < batchCount) {
+                  Map<Item, Integer> altCounts = new HashMap<>();
+                  for (int s = invStart; s < menu.slots.size(); s++) {
+                     if (s == targetSlot) continue;
+                     ItemStack stack = menu.getSlot(s).getItem();
+                     if (!stack.isEmpty() && ing.test(stack) && !stack.is(inSlot.getItem())) {
+                        altCounts.put(stack.getItem(), altCounts.getOrDefault(stack.getItem(), 0) + stack.getCount());
+                     }
+                  }
+                  for (int count : altCounts.values()) {
+                     if (count >= batchCount) {
+                        shouldClear = true;
+                        break;
+                     }
+                  }
+               }
+            }
+
+            if (shouldClear) {
                InvUtils.shiftClick().slotId(targetSlot);
                if (menu.getSlot(targetSlot).hasItem()) {
                   ItemStack gridItem = menu.getSlot(targetSlot).getItem();
@@ -1615,17 +1709,50 @@ public class AutoCraft extends Module {
          int currentInSlot = (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem()))
             ? menu.getSlot(targetSlot).getItem().getCount()
             : 0;
-         int needed = batchCount - currentInSlot;
+         int needed = Math.max(0, batchCount - currentInSlot);
 
-         while (needed > 0) {
-            int foundSource = -1;
+         Item chosenItem = null;
+         if (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem())) {
+            chosenItem = menu.getSlot(targetSlot).getItem().getItem();
+         } else {
+            Map<Item, Integer> candidateCounts = new HashMap<>();
             for (int s = invStart; s < menu.slots.size(); s++) {
                if (s == targetSlot) continue;
                ItemStack stack = menu.getSlot(s).getItem();
                if (!stack.isEmpty() && ing.test(stack)) {
-                  if (menu.getSlot(targetSlot).hasItem() && !stack.is(menu.getSlot(targetSlot).getItem().getItem())) {
-                     continue;
+                  candidateCounts.put(stack.getItem(), candidateCounts.getOrDefault(stack.getItem(), 0) + stack.getCount());
+               }
+            }
+
+            Item bestFull = null;
+            int bestFullCount = -1;
+            Item bestPartial = null;
+            int bestPartialCount = -1;
+
+            for (Map.Entry<Item, Integer> entry : candidateCounts.entrySet()) {
+               int count = entry.getValue();
+               if (count >= needed) {
+                  if (count > bestFullCount) {
+                     bestFullCount = count;
+                     bestFull = entry.getKey();
                   }
+               } else {
+                  if (count > bestPartialCount) {
+                     bestPartialCount = count;
+                     bestPartial = entry.getKey();
+                  }
+               }
+            }
+
+            chosenItem = (bestFull != null) ? bestFull : bestPartial;
+         }
+
+         while (needed > 0 && chosenItem != null) {
+            int foundSource = -1;
+            for (int s = invStart; s < menu.slots.size(); s++) {
+               if (s == targetSlot) continue;
+               ItemStack stack = menu.getSlot(s).getItem();
+               if (!stack.isEmpty() && stack.is(chosenItem)) {
                   foundSource = s;
                   break;
                }
@@ -1667,21 +1794,23 @@ public class AutoCraft extends Module {
             int moved = afterInSlot - currentInSlot;
             if (moved <= 0) break;
             currentInSlot = afterInSlot;
-            needed = batchCount - currentInSlot;
+            needed = Math.max(0, batchCount - currentInSlot);
          }
       }
 
+      boolean allFilled = true;
       for (int i = 0; i < grid.length; i++) {
          Ingredient ing = grid[i];
          if (ing != null && !ing.isEmpty()) {
             ItemStack inSlot = menu.getSlot(gridOffset + i).getItem();
-            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() != batchCount) {
-               return GridPlaceResult.INGREDIENTS_DEPLETED;
+            if (inSlot.isEmpty() || !ing.test(inSlot)) {
+               allFilled = false;
+               break;
             }
          }
       }
 
-      return GridPlaceResult.SUCCESS;
+      return allFilled ? GridPlaceResult.SUCCESS : GridPlaceResult.INGREDIENTS_DEPLETED;
    }
 
    private void handleCleanup() {

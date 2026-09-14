@@ -575,16 +575,8 @@ public class BackpackAdapter {
       if (MeteorClient.mc.player == null) return Collections.emptyList();
       ensureEventBus();
 
-      int currentTick = MeteorClient.mc.player.tickCount;
-      int currentContainer = MeteorClient.mc.player.containerMenu != null ? MeteorClient.mc.player.containerMenu.containerId : -1;
-
-      if (cachedAllBackpackItems != null && cachedBackpackTick == currentTick && cachedContainerId == currentContainer) {
-         return cachedAllBackpackItems;
-      }
-
-      List<ItemStack> items = new ArrayList<>();
-
       if (MeteorClient.mc.player.containerMenu != null && isBackpackMenu(MeteorClient.mc.player.containerMenu)) {
+         List<ItemStack> items = new ArrayList<>();
          BackpackCraftInfo info = getBackpackCraftInfo(MeteorClient.mc.player.containerMenu);
          if (info.storageStart != -1 && info.storageEnd != -1) {
             for (int i = info.storageStart; i <= Math.min(info.storageEnd, MeteorClient.mc.player.containerMenu.slots.size() - 1); i++) {
@@ -605,13 +597,17 @@ public class BackpackAdapter {
          }
          // Include items in carried inventory backpacks
          items.addAll(getInventoryBackpackItems());
-
-         cachedAllBackpackItems = items;
-         cachedBackpackTick = currentTick;
-         cachedContainerId = currentContainer;
          return items;
       }
 
+      int currentTick = MeteorClient.mc.player.tickCount;
+      int currentContainer = MeteorClient.mc.player.containerMenu != null ? MeteorClient.mc.player.containerMenu.containerId : -1;
+
+      if (cachedAllBackpackItems != null && cachedBackpackTick == currentTick && cachedContainerId == currentContainer) {
+         return cachedAllBackpackItems;
+      }
+
+      List<ItemStack> items = new ArrayList<>();
       items.addAll(getWornBackpackItems());
       items.addAll(getInventoryBackpackItems());
 

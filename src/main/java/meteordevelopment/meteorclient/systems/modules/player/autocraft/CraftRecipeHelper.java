@@ -13,8 +13,10 @@ import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.NonNullList;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.inventory.InventoryMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.CraftingRecipe;
@@ -372,27 +374,38 @@ public class CraftRecipeHelper {
       Map<Item, Integer> pool = new HashMap<>();
       if (MeteorClient.mc.player == null) return pool;
 
-      Inventory inv = MeteorClient.mc.player.getInventory();
-      for (int i = 0; i < inv.getContainerSize(); i++) {
-         ItemStack stack = inv.getItem(i);
-         if (!stack.isEmpty()) {
-            pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu != null && !(menu instanceof InventoryMenu)) {
+         for (Slot slot : menu.slots) {
+            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
+               ItemStack stack = slot.getItem();
+               if (!stack.isEmpty()) {
+                  pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+               }
+            }
          }
-      }
-
-      // Include open crafting table grid slots
-      if (MeteorClient.mc.player.containerMenu instanceof CraftingMenu craftingMenu) {
-         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
-            ItemStack stack = craftingMenu.slots.get(i).getItem();
+         if (menu instanceof CraftingMenu craftingMenu) {
+            for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+               ItemStack stack = craftingMenu.slots.get(i).getItem();
+               if (!stack.isEmpty()) {
+                  pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+               }
+            }
+         }
+      } else {
+         Inventory inv = MeteorClient.mc.player.getInventory();
+         for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
             if (!stack.isEmpty()) {
                pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
             }
          }
-      } else if (MeteorClient.mc.player.containerMenu instanceof InventoryMenu invMenu) {
-         for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
-            ItemStack stack = invMenu.slots.get(i).getItem();
-            if (!stack.isEmpty()) {
-               pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+         if (menu instanceof InventoryMenu invMenu) {
+            for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
+               ItemStack stack = invMenu.slots.get(i).getItem();
+               if (!stack.isEmpty()) {
+                  pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+               }
             }
          }
       }
@@ -620,22 +633,36 @@ public class CraftRecipeHelper {
 
    public static int countInDirectInventory(Item item) {
       if (MeteorClient.mc.player == null || item == null) return 0;
-      Inventory inv = MeteorClient.mc.player.getInventory();
       int count = 0;
-      for (int i = 0; i < inv.getContainerSize(); i++) {
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu != null && !(menu instanceof InventoryMenu)) {
+         for (Slot slot : menu.slots) {
+            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
+               ItemStack stack = slot.getItem();
+               if (stack.is(item)) {
+                  count += stack.getCount();
+               }
+            }
+         }
+         if (menu instanceof CraftingMenu craftingMenu) {
+            for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+               ItemStack stack = craftingMenu.slots.get(i).getItem();
+               if (stack.is(item)) {
+                  count += stack.getCount();
+               }
+            }
+         }
+         return count;
+      }
+
+      Inventory inv = MeteorClient.mc.player.getInventory();
+      for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
          ItemStack stack = inv.getItem(i);
          if (stack.is(item)) {
             count += stack.getCount();
          }
       }
-      if (MeteorClient.mc.player.containerMenu instanceof CraftingMenu craftingMenu) {
-         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
-            ItemStack stack = craftingMenu.slots.get(i).getItem();
-            if (stack.is(item)) {
-               count += stack.getCount();
-            }
-         }
-      } else if (MeteorClient.mc.player.containerMenu instanceof InventoryMenu invMenu) {
+      if (menu instanceof InventoryMenu invMenu) {
          for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
             ItemStack stack = invMenu.slots.get(i).getItem();
             if (stack.is(item)) {
@@ -648,22 +675,36 @@ public class CraftRecipeHelper {
 
    public static int countIngredientInDirectInventory(Ingredient ingredient) {
       if (MeteorClient.mc.player == null || ingredient == null || ingredient.isEmpty()) return 0;
-      Inventory inv = MeteorClient.mc.player.getInventory();
       int count = 0;
-      for (int i = 0; i < inv.getContainerSize(); i++) {
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu != null && !(menu instanceof InventoryMenu)) {
+         for (Slot slot : menu.slots) {
+            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
+               ItemStack stack = slot.getItem();
+               if (ingredient.test(stack)) {
+                  count += stack.getCount();
+               }
+            }
+         }
+         if (menu instanceof CraftingMenu craftingMenu) {
+            for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+               ItemStack stack = craftingMenu.slots.get(i).getItem();
+               if (ingredient.test(stack)) {
+                  count += stack.getCount();
+               }
+            }
+         }
+         return count;
+      }
+
+      Inventory inv = MeteorClient.mc.player.getInventory();
+      for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
          ItemStack stack = inv.getItem(i);
          if (ingredient.test(stack)) {
             count += stack.getCount();
          }
       }
-      if (MeteorClient.mc.player.containerMenu instanceof CraftingMenu craftingMenu) {
-         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
-            ItemStack stack = craftingMenu.slots.get(i).getItem();
-            if (ingredient.test(stack)) {
-               count += stack.getCount();
-            }
-         }
-      } else if (MeteorClient.mc.player.containerMenu instanceof InventoryMenu invMenu) {
+      if (menu instanceof InventoryMenu invMenu) {
          for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
             ItemStack stack = invMenu.slots.get(i).getItem();
             if (ingredient.test(stack)) {
@@ -801,9 +842,19 @@ public class CraftRecipeHelper {
     */
    public static int getEmptyInventorySlots() {
       if (MeteorClient.mc.player == null) return 0;
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu != null && !(menu instanceof InventoryMenu)) {
+         int empty = 0;
+         for (Slot slot : menu.slots) {
+            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36 && slot.getItem().isEmpty()) {
+               empty++;
+            }
+         }
+         return empty;
+      }
       Inventory inv = MeteorClient.mc.player.getInventory();
       int empty = 0;
-      for (int i = 0; i < 36; i++) {
+      for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
          if (inv.getItem(i).isEmpty()) {
             empty++;
          }
@@ -816,10 +867,25 @@ public class CraftRecipeHelper {
     */
    public static int getFreeSpaceFor(Item item) {
       if (MeteorClient.mc.player == null || item == null) return 0;
-      Inventory inv = MeteorClient.mc.player.getInventory();
       int maxStack = item.getDefaultInstance().getMaxStackSize();
       int freeSpace = 0;
-      for (int i = 0; i < 36; i++) {
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu != null && !(menu instanceof InventoryMenu)) {
+         for (Slot slot : menu.slots) {
+            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
+               ItemStack stack = slot.getItem();
+               if (stack.isEmpty()) {
+                  freeSpace += maxStack;
+               } else if (stack.is(item)) {
+                  freeSpace += Math.max(0, maxStack - stack.getCount());
+               }
+            }
+         }
+         return freeSpace;
+      }
+
+      Inventory inv = MeteorClient.mc.player.getInventory();
+      for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
          ItemStack stack = inv.getItem(i);
          if (stack.isEmpty()) {
             freeSpace += maxStack;
