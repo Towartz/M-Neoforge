@@ -82,6 +82,7 @@ public class CraftPlanner {
       // Determine which raw materials were actually consumed from starting inventory
       Map<Item, Integer> rawMaterialsNeeded = new LinkedHashMap<>();
       for (Map.Entry<Item, Integer> entry : startingInv.entrySet()) {
+         if (entry.getKey() == targetItem) continue;
          int start = entry.getValue();
          int remaining = virtualInv.getOrDefault(entry.getKey(), 0);
          if (start > remaining) {
@@ -95,18 +96,52 @@ public class CraftPlanner {
       return new CraftPlan(targetItem, targetCount, mergedSteps, rawMaterialsNeeded, missingRaw, satisfied && missingRaw.isEmpty());
    }
 
+   private static class GroupedIngredient {
+      final Ingredient ingredient;
+      int count;
+
+      GroupedIngredient(Ingredient ingredient, int count) {
+         this.ingredient = ingredient;
+         this.count = count;
+      }
+   }
+
+   private static boolean areIngredientsEquivalent(Ingredient a, Ingredient b) {
+      if (a == b) return true;
+      if (a == null || b == null) return false;
+      ItemStack[] itemsA = a.getItems();
+      ItemStack[] itemsB = b.getItems();
+      if (itemsA == null || itemsB == null) return itemsA == itemsB;
+      if (itemsA.length != itemsB.length) return false;
+      if (itemsA.length == 0) return true;
+      if (itemsA.length == 1 && itemsB.length == 1) {
+         return itemsA[0].getItem() == itemsB[0].getItem();
+      }
+      Set<Item> setA = new HashSet<>();
+      for (ItemStack st : itemsA) {
+         if (st != null && !st.isEmpty()) setA.add(st.getItem());
+      }
+      Set<Item> setB = new HashSet<>();
+      for (ItemStack st : itemsB) {
+         if (st != null && !st.isEmpty()) setB.add(st.getItem());
+      }
+      return setA.equals(setB);
+   }
+
    private static boolean planItem(Item item, int neededCount, Map<Item, Integer> virtualInv, List<CraftStep> steps,
                                    Map<Item, Integer> missingRaw, Set<Item> activePath, int depth) {
       if (neededCount <= 0) return true;
 
-      // 1. Take as much as possible from virtual inventory / surplus
-      int have = virtualInv.getOrDefault(item, 0);
-      int taken = Math.min(have, neededCount);
-      if (taken > 0) {
-         virtualInv.put(item, have - taken);
-         neededCount -= taken;
+      // 1. Take as much as possible from virtual inventory / surplus (intermediate sub-ingredients only)
+      if (depth > 0) {
+         int have = virtualInv.getOrDefault(item, 0);
+         int taken = Math.min(have, neededCount);
+         if (taken > 0) {
+            virtualInv.put(item, have - taken);
+            neededCount -= taken;
+         }
+         if (neededCount <= 0) return true;
       }
-      if (neededCount <= 0) return true;
 
       // 2. Prevent recursion cycles and deep recursion
       if (depth > 6 || !activePath.add(item)) {
@@ -144,14 +179,31 @@ public class CraftPlanner {
          boolean allIngredientsSatisfied = true;
          Map<Item, Integer> stepConsumed = new LinkedHashMap<>();
 
-         // 4. Resolve each ingredient required by the recipe
+         // 4. Group equivalent ingredients in the recipe to prevent per-slot fragmentation
+         List<GroupedIngredient> groupedIngredients = new ArrayList<>();
          for (Ingredient ingredient : recipe.value().getIngredients()) {
             if (ingredient.isEmpty()) continue;
-            int needed = craftsNeeded;
+            boolean merged = false;
+            for (GroupedIngredient gi : groupedIngredients) {
+               if (areIngredientsEquivalent(gi.ingredient, ingredient)) {
+                  gi.count++;
+                  merged = true;
+                  break;
+               }
+            }
+            if (!merged) {
+               groupedIngredients.add(new GroupedIngredient(ingredient, 1));
+            }
+         }
+
+         // 5. Resolve each grouped ingredient required by the recipe in batch
+         for (GroupedIngredient gi : groupedIngredients) {
+            int totalNeeded = gi.count * craftsNeeded;
+            int needed = totalNeeded;
 
             // Check if virtual inventory has an item matching this ingredient
             for (Map.Entry<Item, Integer> entry : virtualInv.entrySet()) {
-               if (entry.getValue() > 0 && ingredient.test(entry.getKey().getDefaultInstance())) {
+               if (entry.getValue() > 0 && gi.ingredient.test(entry.getKey().getDefaultInstance())) {
                   int take = Math.min(needed, entry.getValue());
                   entry.setValue(entry.getValue() - take);
                   stepConsumed.put(entry.getKey(), stepConsumed.getOrDefault(entry.getKey(), 0) + take);
@@ -162,9 +214,9 @@ public class CraftPlanner {
 
             if (needed > 0) {
                // Deficit: recursively plan and produce the needed matching ingredient in batch
-               Item rep = CraftRecipeHelper.getRepresentativeItem(ingredient, false);
+               Item rep = CraftRecipeHelper.getRepresentativeItem(gi.ingredient, false);
                if (rep == null || rep == Items.AIR) {
-                  ItemStack[] matching = ingredient.getItems();
+                  ItemStack[] matching = gi.ingredient.getItems();
                   Item missingItem = (matching != null && matching.length > 0) ? matching[0].getItem() : item;
                   missingRaw.put(missingItem, missingRaw.getOrDefault(missingItem, 0) + needed);
                   allIngredientsSatisfied = false;

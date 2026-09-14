@@ -349,23 +349,23 @@ public class AutoCraftScreen extends WindowTabScreen {
             treeTable.row();
             stepIdx++;
          }
-      }
 
-      if (!plan.rawMaterialsNeeded.isEmpty() || !plan.missingRawMaterials.isEmpty()) {
-         this.detailsContainer.add(this.theme.label("Base Materials Summary:"));
-         WTable baseTable = this.detailsContainer.add(this.theme.table()).widget();
-         for (var entry : plan.rawMaterialsNeeded.entrySet()) {
-            baseTable.add(this.theme.item(entry.getKey().getDefaultInstance()));
-            baseTable.add(this.theme.label(entry.getKey().getDescription().getString()));
-            baseTable.add(this.theme.label("Need: " + entry.getValue()));
-            baseTable.row();
-         }
-         for (var entry : plan.missingRawMaterials.entrySet()) {
-            baseTable.add(this.theme.item(entry.getKey().getDefaultInstance()));
-            baseTable.add(this.theme.label(entry.getKey().getDescription().getString()));
-            WLabel missLabel = baseTable.add(this.theme.label("Missing: " + entry.getValue())).widget();
-            missLabel.color = new Color(255, 75, 75, 255);
-            baseTable.row();
+         if (!plan.rawMaterialsNeeded.isEmpty() || !plan.missingRawMaterials.isEmpty()) {
+            this.detailsContainer.add(this.theme.label("Base Materials Summary:"));
+            WTable baseTable = this.detailsContainer.add(this.theme.table()).widget();
+            for (var entry : plan.rawMaterialsNeeded.entrySet()) {
+               baseTable.add(this.theme.item(entry.getKey().getDefaultInstance()));
+               baseTable.add(this.theme.label(entry.getKey().getDescription().getString()));
+               baseTable.add(this.theme.label("Need: " + entry.getValue()));
+               baseTable.row();
+            }
+            for (var entry : plan.missingRawMaterials.entrySet()) {
+               baseTable.add(this.theme.item(entry.getKey().getDefaultInstance()));
+               baseTable.add(this.theme.label(entry.getKey().getDescription().getString()));
+               WLabel missLabel = baseTable.add(this.theme.label("Missing: " + entry.getValue())).widget();
+               missLabel.color = new Color(255, 75, 75, 255);
+               baseTable.row();
+            }
          }
       }
 
