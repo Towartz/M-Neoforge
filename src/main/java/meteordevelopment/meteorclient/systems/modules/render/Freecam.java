@@ -28,6 +28,7 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.movement.GUIMove;
 import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.compat.WatutCompat;
 import meteordevelopment.meteorclient.utils.misc.Keybind;
 import meteordevelopment.meteorclient.utils.misc.input.Input;
 import meteordevelopment.meteorclient.utils.misc.input.KeyAction;
@@ -246,6 +247,15 @@ public class Freecam extends Module {
       );
    private final Setting<Boolean> staticView = this.sgVisual
       .add(new BoolSetting.Builder().name("static").description("Disables settings that move the view.").defaultValue(Boolean.valueOf(true)).build());
+   public final Setting<Boolean> showWatut = this.sgVisual
+      .add(
+         new BoolSetting.Builder()
+            .name("show-watut")
+            .description("Shows Watut animations, particles, and GUI screens on your character in Freecam.")
+            .defaultValue(Boolean.valueOf(true))
+            .visible(WatutCompat::isInstalled)
+            .build()
+      );
 
    // Safety
    public final Setting<Boolean> allowInteract = this.sgSafety

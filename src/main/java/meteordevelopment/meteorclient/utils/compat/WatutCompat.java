@@ -2,6 +2,8 @@ package meteordevelopment.meteorclient.utils.compat;
 
 import java.lang.reflect.Method;
 import meteordevelopment.meteorclient.gui.WidgetScreen;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.render.Freecam;
 import net.minecraft.client.gui.screens.Screen;
 import net.neoforged.fml.loading.LoadingModList;
 
@@ -26,6 +28,13 @@ public class WatutCompat {
     public static boolean isMeteorScreen(Screen screen) {
         if (screen == null) return false;
         return screen instanceof WidgetScreen || screen.getClass().getName().startsWith("baritone.");
+    }
+
+    public static boolean isFreecamSelfViewActive() {
+        if (!isInstalled()) return false;
+        if (Modules.get() == null) return false;
+        Freecam freecam = Modules.get().get(Freecam.class);
+        return freecam != null && freecam.isActive() && freecam.showWatut.get();
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
