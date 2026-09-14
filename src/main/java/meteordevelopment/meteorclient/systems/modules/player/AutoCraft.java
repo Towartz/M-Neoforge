@@ -79,10 +79,12 @@ public class AutoCraft extends Module {
 
    public static class CraftTask {
       public final Item item;
+      public final int initialCount;
       public int remainingCount;
 
       public CraftTask(Item item, int count) {
          this.item = item;
+         this.initialCount = count;
          this.remainingCount = count;
       }
    }
@@ -131,7 +133,7 @@ public class AutoCraft extends Module {
       new BoolSetting.Builder()
          .name("search-chests")
          .description("Search nearby chests and containers if materials are missing from inventory.")
-         .defaultValue(true)
+         .defaultValue(false)
          .build()
    );
    private final Setting<Integer> chestRadius = this.sgChest.add(
@@ -181,6 +183,7 @@ public class AutoCraft extends Module {
    private int navWaitTicks = 0;
    private int craftRetryTicks = 0;
    private int gridResultWaitTicks = 0;
+   private int consecutiveExhaustions = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -209,12 +212,14 @@ public class AutoCraft extends Module {
       this.navWaitTicks = 0;
       this.craftRetryTicks = 0;
       this.gridResultWaitTicks = 0;
+      this.consecutiveExhaustions = 0;
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
    }
 
    public void queueCraft(Item item, int count) {
       if (item == null || count <= 0) return;
+      this.consecutiveExhaustions = 0;
       this.queue.add(new CraftTask(item, count));
       if (!this.isActive()) {
          this.toggle();
@@ -228,6 +233,7 @@ public class AutoCraft extends Module {
 
    public void queueBundle(List<Item> items, int count) {
       if (items == null || items.isEmpty()) return;
+      this.consecutiveExhaustions = 0;
       for (Item item : items) {
          this.queue.add(new CraftTask(item, count));
       }
@@ -550,6 +556,25 @@ public class AutoCraft extends Module {
          }
       }
 
+      // Circuit breaker: If consecutive exhaustions occurred, break out of loop gracefully
+      if (this.consecutiveExhaustions >= 2) {
+         int crafted = this.currentTask.initialCount - this.currentTask.remainingCount;
+         if (crafted > 0) {
+            this.info("Finished crafting available materials for %s (%d/%d crafted).",
+               this.currentTask.item.getDescription().getString(), crafted, this.currentTask.initialCount);
+         } else {
+            this.warning("Materials exhausted for %s. Skipping...", this.currentTask.item.getDescription().getString());
+         }
+         this.consecutiveExhaustions = 0;
+         this.currentTask = null;
+         if (this.queue.isEmpty()) {
+            this.state = State.CLEANUP;
+         } else {
+            this.state = State.RESOLVING;
+         }
+         return;
+      }
+
       // If player has materials on-hand (in direct inventory, backpack, or open grid) to craft at least 1 batch:
       // ALWAYS CRAFT ON-HAND MATERIALS FIRST! Never wander off searching chests while holding craftable materials!
       if (CraftRecipeHelper.canSatisfy(this.activeRecipe, 1)) {
@@ -578,7 +603,18 @@ public class AutoCraft extends Module {
                this.info("Searching %s at [%d, %d, %d]...", ContainerSearcher.getContainerName(this.targetChestPos), this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
             } else {
                this.warning("%s at [%d, %d, %d] is out of reach (auto-walk disabled).", ContainerSearcher.getContainerName(this.targetChestPos), this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
-               this.cancelTask();
+               int crafted = this.currentTask.initialCount - this.currentTask.remainingCount;
+               if (crafted > 0) {
+                  this.info("Finished crafting available materials for %s (%d/%d crafted).",
+                     this.currentTask.item.getDescription().getString(), crafted, this.currentTask.initialCount);
+               }
+               this.consecutiveExhaustions = 0;
+               this.currentTask = null;
+               if (this.queue.isEmpty()) {
+                  this.state = State.CLEANUP;
+               } else {
+                  this.state = State.RESOLVING;
+               }
             }
             return;
          }
@@ -590,8 +626,21 @@ public class AutoCraft extends Module {
          sb.append(e.getValue()).append("x ").append(e.getKey().getDescription().getString()).append(", ");
       }
       String missingStr = sb.length() > 2 ? sb.substring(0, sb.length() - 2) : "unknown";
-      this.error("Missing materials for %s: %s.", this.currentTask.item.getDescription().getString(), missingStr);
-      this.cancelTask();
+
+      int crafted = this.currentTask.initialCount - this.currentTask.remainingCount;
+      if (crafted > 0) {
+         this.warning("Partially crafted %s (%d/%d). Missing remaining materials: %s.",
+            this.currentTask.item.getDescription().getString(), crafted, this.currentTask.initialCount, missingStr);
+      } else {
+         this.warning("Missing materials for %s: %s.", this.currentTask.item.getDescription().getString(), missingStr);
+      }
+      this.consecutiveExhaustions = 0;
+      this.currentTask = null;
+      if (this.queue.isEmpty()) {
+         this.state = State.CLEANUP;
+      } else {
+         this.state = State.RESOLVING;
+      }
    }
 
    private void startCraftingSequence() {
@@ -928,6 +977,7 @@ public class AutoCraft extends Module {
                }
 
                this.craftRetryTicks = 0;
+               this.consecutiveExhaustions = 0;
                this.currentTask.remainingCount -= actuallyCrafted;
                this.info("Crafted (highlight)%dx %s(default) via backpack (remaining: %d).", actuallyCrafted, this.currentTask.item.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
                this.timer = this.craftDelay.get();
@@ -936,6 +986,30 @@ public class AutoCraft extends Module {
                   this.currentTask = null;
                   this.state = State.RESOLVING;
                }
+               return;
+            }
+
+            // If grid already contains items, wait for server to populate result slot before declaring exhaustion
+            boolean gridHasItems = false;
+            for (int s = info.gridStart; s <= info.gridEnd; s++) {
+               if (!menu.getSlot(s).getItem().isEmpty()) {
+                  gridHasItems = true;
+                  break;
+               }
+            }
+
+            if (gridHasItems) {
+               this.gridResultWaitTicks++;
+               if (this.gridResultWaitTicks <= 15) {
+                  this.timer = 2;
+                  return;
+               }
+               this.warning("Backpack crafting grid result timed out with items in grid. Clearing grid...");
+               BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
+               this.gridResultWaitTicks = 0;
+               this.consecutiveExhaustions++;
+               this.state = State.RESOLVING;
+               this.timer = this.craftDelay.get() + 2;
                return;
             }
 
@@ -951,6 +1025,7 @@ public class AutoCraft extends Module {
                BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
                this.info("Backpack crafting materials exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
                this.gridResultWaitTicks = 0;
+               this.consecutiveExhaustions++;
                this.state = State.RESOLVING;
                this.timer = this.craftDelay.get() + 2;
                return;
@@ -963,6 +1038,7 @@ public class AutoCraft extends Module {
                   BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
                   this.info("Backpack crafting materials exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
                   this.gridResultWaitTicks = 0;
+                  this.consecutiveExhaustions++;
                   this.state = State.RESOLVING;
                   this.timer = this.craftDelay.get() + 2;
                   return;
@@ -1051,6 +1127,7 @@ public class AutoCraft extends Module {
          }
 
          this.craftRetryTicks = 0;
+         this.consecutiveExhaustions = 0;
          this.currentTask.remainingCount -= actuallyCrafted;
          this.info("Crafted (highlight)%dx %s(default) (remaining: %d).", actuallyCrafted, this.currentTask.item.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
          this.timer = this.craftDelay.get();
@@ -1059,6 +1136,34 @@ public class AutoCraft extends Module {
             this.currentTask = null;
             this.state = State.RESOLVING;
          }
+         return;
+      }
+
+      int gridStart = 1;
+      int gridEnd = table3x3 ? 9 : 4;
+      boolean tableGridHasItems = false;
+      for (int s = gridStart; s <= gridEnd; s++) {
+         if (!menu.getSlot(s).getItem().isEmpty()) {
+            tableGridHasItems = true;
+            break;
+         }
+      }
+
+      if (tableGridHasItems) {
+         this.gridResultWaitTicks++;
+         if (this.gridResultWaitTicks <= 15) {
+            this.timer = 2;
+            return;
+         }
+         this.warning("Crafting grid result timed out with items in grid. Clearing grid...");
+         BackpackAdapter.clearGrid(menu, gridStart, gridEnd);
+         if (table3x3 && menu instanceof CraftingMenu) {
+            this.mc.player.closeContainer();
+         }
+         this.gridResultWaitTicks = 0;
+         this.consecutiveExhaustions++;
+         this.state = State.RESOLVING;
+         this.timer = this.craftDelay.get() + 2;
          return;
       }
 
@@ -1081,6 +1186,7 @@ public class AutoCraft extends Module {
             this.mc.player.closeContainer();
          }
          this.gridResultWaitTicks = 0;
+         this.consecutiveExhaustions++;
          this.timer = this.craftDelay.get() + 2;
          this.state = State.RESOLVING;
          return;
@@ -1100,6 +1206,7 @@ public class AutoCraft extends Module {
                this.mc.player.closeContainer();
             }
             this.gridResultWaitTicks = 0;
+            this.consecutiveExhaustions++;
             this.timer = this.craftDelay.get() + 2;
             this.state = State.RESOLVING;
             return;
