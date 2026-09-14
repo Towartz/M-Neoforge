@@ -305,7 +305,24 @@ public class CraftPlanner {
             int bestMissingScore = Integer.MAX_VALUE;
             Item chosenRep = null;
 
+            // Limit candidates to test to prevent combinatorial explosion:
+            // 1. Test only candidates with positive craftability score (materials available in inventory)
+            // 2. Cap at top 2 viable candidates
+            // 3. If none has positive score, test ONLY the single top candidate as fallback
+            List<Item> toTest = new ArrayList<>();
             for (Item cand : candidates) {
+               if (cand == null || cand == Items.AIR) continue;
+               int score = CraftRecipeHelper.getCraftabilityScore(cand, virtualInv, false);
+               if (score > 0) {
+                  toTest.add(cand);
+                  if (toTest.size() >= 2) break;
+               }
+            }
+            if (toTest.isEmpty()) {
+               toTest.add(candidates.get(0));
+            }
+
+            for (Item cand : toTest) {
                if (cand == null || cand == Items.AIR) continue;
 
                Map<Item, Integer> snapInv = new HashMap<>(virtualInv);

@@ -319,6 +319,9 @@ public class AutoCraftScreen extends WindowTabScreen {
          gridTable.row();
       }
 
+      // Compute full craft tree plan once
+      CraftPlanner.CraftPlan plan = CraftPlanner.createPlan(this.selectedItem, this.craftQuantity, this.selectedRecipe);
+
       // Required Materials Checklist
       this.detailsContainer.add(this.theme.label("Ingredients:"));
       WTable matsTable = this.detailsContainer.add(this.theme.table()).widget();
@@ -352,20 +355,18 @@ public class AutoCraftScreen extends WindowTabScreen {
 
          boolean canSatisfyIng = (haveCount >= reqCount || equivCount >= reqCount);
          if (!canSatisfyIng) {
-            CraftPlanner.CraftPlan subPlan = CraftPlanner.createPlan(reqItem, reqCount - haveCount);
-            if (subPlan.isSatisfied) {
-               canSatisfyIng = true;
-               haveText += " (Craftable)";
-            } else {
-               RecipeHolder<CraftingRecipe> sub = CraftRecipeHelper.findBestRecipe(reqItem);
-               if (sub != null) {
-                  int subYield = CraftRecipeHelper.getResultCount(sub);
-                  int subNeeded = (int) Math.ceil((double) (reqCount - haveCount) / subYield);
-                  if (CraftRecipeHelper.canSatisfyRecursive(sub, subNeeded, 3)) {
-                     canSatisfyIng = true;
-                     haveText += " (Craftable)";
+            boolean producedInPlan = false;
+            if (plan != null && plan.steps != null) {
+               for (CraftPlanner.CraftStep step : plan.steps) {
+                  if (step.resultItem == reqItem) {
+                     producedInPlan = true;
+                     break;
                   }
                }
+            }
+            if (producedInPlan || (plan != null && plan.isSatisfied && !plan.missingRawMaterials.containsKey(reqItem))) {
+               canSatisfyIng = true;
+               haveText += " (Craftable)";
             }
          }
 
@@ -379,8 +380,7 @@ public class AutoCraftScreen extends WindowTabScreen {
       }
 
       // Craft Tree & Base Materials (if intermediate steps exist)
-      CraftPlanner.CraftPlan plan = CraftPlanner.createPlan(this.selectedItem, this.craftQuantity, this.selectedRecipe);
-      if (plan.steps.size() > 1) {
+      if (plan != null && plan.steps.size() > 1) {
          this.detailsContainer.add(this.theme.horizontalSeparator()).expandX();
          this.detailsContainer.add(this.theme.label("Craft Tree (" + plan.steps.size() + " Steps):", true));
          WTable treeTable = this.detailsContainer.add(this.theme.table()).widget();
