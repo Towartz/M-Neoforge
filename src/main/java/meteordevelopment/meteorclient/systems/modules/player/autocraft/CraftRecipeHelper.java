@@ -12,6 +12,7 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.NonNullList;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingMenu;
@@ -29,6 +30,7 @@ import net.minecraft.world.item.crafting.ShapelessRecipe;
 
 public class CraftRecipeHelper {
    private static RecipeManager lastRecipeManager = null;
+   private static int lastRecipeCount = -1;
    private static final Map<Item, List<RecipeHolder<CraftingRecipe>>> RECIPES_BY_RESULT = new HashMap<>();
    private static final Set<Item> ALL_CRAFTABLE_ITEMS = new LinkedHashSet<>();
    private static boolean listenerRegistered = false;
@@ -48,7 +50,8 @@ public class CraftRecipeHelper {
       }
 
       RecipeManager manager = MeteorClient.mc.level.getRecipeManager();
-      if (manager != lastRecipeManager) {
+      int currentCount = (manager != null) ? manager.getRecipes().size() : -1;
+      if (manager != lastRecipeManager || currentCount != lastRecipeCount) {
          rebuildCache(manager);
       }
       return true;
@@ -58,16 +61,36 @@ public class CraftRecipeHelper {
       RECIPES_BY_RESULT.clear();
       ALL_CRAFTABLE_ITEMS.clear();
       lastRecipeManager = manager;
+      lastRecipeCount = (manager != null) ? manager.getRecipes().size() : -1;
 
       if (manager == null || MeteorClient.mc.level == null) return;
 
       var registryAccess = MeteorClient.mc.level.registryAccess();
+      Set<ResourceLocation> seen = new HashSet<>();
+
+      // 1. All standard crafting recipes registered under RecipeType.CRAFTING
       for (RecipeHolder<CraftingRecipe> holder : manager.getAllRecipesFor(RecipeType.CRAFTING)) {
+         seen.add(holder.id());
          ItemStack result = holder.value().getResultItem(registryAccess);
          if (!result.isEmpty()) {
             Item item = result.getItem();
             RECIPES_BY_RESULT.computeIfAbsent(item, k -> new ArrayList<>()).add(holder);
             ALL_CRAFTABLE_ITEMS.add(item);
+         }
+      }
+
+      // 2. Any additional recipes in RecipeManager whose value implements CraftingRecipe
+      for (RecipeHolder<?> holder : manager.getRecipes()) {
+         if (holder.value() instanceof CraftingRecipe craftingRecipe && !seen.contains(holder.id())) {
+            seen.add(holder.id());
+            ItemStack result = craftingRecipe.getResultItem(registryAccess);
+            if (!result.isEmpty()) {
+               Item item = result.getItem();
+               @SuppressWarnings("unchecked")
+               RecipeHolder<CraftingRecipe> castHolder = (RecipeHolder<CraftingRecipe>) holder;
+               RECIPES_BY_RESULT.computeIfAbsent(item, k -> new ArrayList<>()).add(castHolder);
+               ALL_CRAFTABLE_ITEMS.add(item);
+            }
          }
       }
    }
@@ -81,6 +104,15 @@ public class CraftRecipeHelper {
       RECIPES_BY_RESULT.clear();
       ALL_CRAFTABLE_ITEMS.clear();
       lastRecipeManager = null;
+      lastRecipeCount = -1;
+   }
+
+   public static synchronized void reloadCache() {
+      if (MeteorClient.mc.level != null) {
+         rebuildCache(MeteorClient.mc.level.getRecipeManager());
+      } else {
+         clearCache();
+      }
    }
 
    public static Set<Item> getAllCraftableItems() {

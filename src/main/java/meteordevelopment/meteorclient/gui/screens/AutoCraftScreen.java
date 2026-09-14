@@ -63,6 +63,13 @@ public class AutoCraftScreen extends WindowTabScreen {
    private int recipeIndex = 0;
    private int craftQuantity = 1;
 
+   private static final int ITEMS_PER_PAGE = 50;
+   private int currentPage = 0;
+   private int totalPages = 1;
+   private WLabel pageLabel;
+   private WButton prevBtn;
+   private WButton nextBtn;
+
    private WTable itemTable;
    private WVerticalList detailsContainer;
 
@@ -122,6 +129,7 @@ public class AutoCraftScreen extends WindowTabScreen {
       WTextBox searchBox = searchRow.add(this.theme.textBox(this.filterText, "Item name or @mod (e.g. diamond, chest, @create)...")).expandX().widget();
       searchBox.action = () -> {
          this.filterText = searchBox.get().trim().toLowerCase(Locale.ROOT);
+         this.currentPage = 0;
          updateItemTable();
       };
 
@@ -133,6 +141,7 @@ public class AutoCraftScreen extends WindowTabScreen {
          WButton catBtn = catRow.add(this.theme.button(btnText)).widget();
          catBtn.action = () -> {
             this.category = cat;
+            this.currentPage = 0;
             this.reload();
          };
       }
@@ -146,12 +155,42 @@ public class AutoCraftScreen extends WindowTabScreen {
       // Left Column: Item Browser
       WVerticalList leftCol = mainSplit.add(this.theme.verticalList()).widget();
       leftCol.minWidth = 240.0;
-      leftCol.add(this.theme.label("Craftable Items:"));
+
+      WHorizontalList leftHeader = leftCol.add(this.theme.horizontalList()).expandX().widget();
+      leftHeader.add(this.theme.label("Craftable Items:"));
+      WButton refreshBtn = leftHeader.add(this.theme.button("↻")).widget();
+      refreshBtn.tooltip = "Refresh Recipes";
+      refreshBtn.action = () -> {
+         CraftRecipeHelper.reloadCache();
+         loadCraftableItems();
+         this.currentPage = 0;
+         updateItemTable();
+      };
 
       WView itemScroll = leftCol.add(this.theme.view()).widget();
       itemScroll.maxHeight = 220.0;
       itemScroll.minWidth = 240.0;
       this.itemTable = itemScroll.add(this.theme.table()).widget();
+
+      // Pagination Controls
+      WHorizontalList pageNav = leftCol.add(this.theme.horizontalList()).expandX().widget();
+      pageNav.spacing = 4.0;
+      this.prevBtn = pageNav.add(this.theme.button("<")).widget();
+      this.prevBtn.action = () -> {
+         if (this.currentPage > 0) {
+            this.currentPage--;
+            updateItemTable();
+         }
+      };
+      this.pageLabel = pageNav.add(this.theme.label("Page 1/1")).widget();
+      this.nextBtn = pageNav.add(this.theme.button(">")).widget();
+      this.nextBtn.action = () -> {
+         if (this.currentPage < this.totalPages - 1) {
+            this.currentPage++;
+            updateItemTable();
+         }
+      };
+
       updateItemTable();
 
       // Right Column: Recipe Details & Action
@@ -172,11 +211,35 @@ public class AutoCraftScreen extends WindowTabScreen {
       if (this.itemTable == null) return;
       this.itemTable.clear();
 
-      int count = 0;
+      List<Item> matched = new ArrayList<>();
       for (Item item : this.craftableItems) {
-         if (count >= 50) break;
-         if (!matchesCategory(item) || !matchesSearch(item)) continue;
+         if (matchesCategory(item) && matchesSearch(item)) {
+            matched.add(item);
+         }
+      }
 
+      String query = extractItemQuery(this.filterText);
+      String modFilter = extractModFilter(this.filterText);
+      matched.sort((a, b) -> compareRelevance(a, b, query, modFilter));
+
+      int totalItems = matched.size();
+      this.totalPages = Math.max(1, (int) Math.ceil((double) totalItems / ITEMS_PER_PAGE));
+      if (this.currentPage >= this.totalPages) {
+         this.currentPage = this.totalPages - 1;
+      }
+      if (this.currentPage < 0) {
+         this.currentPage = 0;
+      }
+
+      if (this.pageLabel != null) {
+         this.pageLabel.set("Page " + (this.currentPage + 1) + "/" + this.totalPages + " (" + totalItems + ")");
+      }
+
+      int start = this.currentPage * ITEMS_PER_PAGE;
+      int end = Math.min(totalItems, start + ITEMS_PER_PAGE);
+
+      for (int i = start; i < end; i++) {
+         Item item = matched.get(i);
          String name = item.getDescription().getString();
          String displayName = name.length() > 16 ? name.substring(0, 14) + "..." : name;
 
@@ -202,23 +265,130 @@ public class AutoCraftScreen extends WindowTabScreen {
          }
 
          this.itemTable.row();
-         count++;
       }
 
-      if (count == 0) {
+      if (totalItems == 0) {
          this.itemTable.add(this.theme.label("No items found."));
       }
+   }
+
+   private String extractModFilter(String filter) {
+      if (filter.startsWith("@")) {
+         int space = filter.indexOf(' ');
+         if (space != -1) {
+            return filter.substring(1, space).trim().toLowerCase(Locale.ROOT);
+         }
+         return filter.substring(1).trim().toLowerCase(Locale.ROOT);
+      }
+      return "";
+   }
+
+   private String extractItemQuery(String filter) {
+      if (filter.startsWith("@")) {
+         int space = filter.indexOf(' ');
+         if (space != -1) {
+            return filter.substring(space + 1).trim().toLowerCase(Locale.ROOT);
+         }
+         return "";
+      }
+      return filter.trim().toLowerCase(Locale.ROOT);
+   }
+
+   private int calculateRelevanceScore(Item item, String query, String modFilter) {
+      if (query.isEmpty()) {
+         return 0;
+      }
+
+      ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+      String name = item.getDescription().getString().toLowerCase(Locale.ROOT);
+      String path = id.getPath().toLowerCase(Locale.ROOT);
+
+      // 1. Exact match on display name or path
+      if (name.equals(query) || path.equals(query)) {
+         return 0;
+      }
+
+      // 2. Prefix match
+      if (name.startsWith(query) || path.startsWith(query)) {
+         return 10;
+      }
+
+      // 3. Word boundary match in display name
+      if ((" " + name + " ").contains(" " + query + " ")) {
+         return 20;
+      }
+
+      // 4. Substring in path
+      if (path.contains(query)) {
+         return 30;
+      }
+
+      // 5. Substring in display name
+      if (name.contains(query)) {
+         return 35;
+      }
+
+      return 50;
+   }
+
+   private int getModPriority(Item item) {
+      ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+      String ns = id.getNamespace();
+      if (ns.equals("minecraft")) return 0;
+      if (ns.equals("create")) return 1;
+      return 2;
+   }
+
+   private int compareRelevance(Item a, Item b, String query, String modFilter) {
+      int scoreA = calculateRelevanceScore(a, query, modFilter);
+      int scoreB = calculateRelevanceScore(b, query, modFilter);
+      if (scoreA != scoreB) {
+         return Integer.compare(scoreA, scoreB);
+      }
+
+      if (!modFilter.isEmpty()) {
+         ResourceLocation idA = BuiltInRegistries.ITEM.getKey(a);
+         ResourceLocation idB = BuiltInRegistries.ITEM.getKey(b);
+         boolean exactModA = idA.getNamespace().equalsIgnoreCase(modFilter);
+         boolean exactModB = idB.getNamespace().equalsIgnoreCase(modFilter);
+         if (exactModA != exactModB) {
+            return exactModA ? -1 : 1;
+         }
+      } else {
+         int modA = getModPriority(a);
+         int modB = getModPriority(b);
+         if (modA != modB) {
+            return Integer.compare(modA, modB);
+         }
+      }
+
+      String nameA = a.getDescription().getString();
+      String nameB = b.getDescription().getString();
+      if (nameA.length() != nameB.length()) {
+         return Integer.compare(nameA.length(), nameB.length());
+      }
+
+      return nameA.compareToIgnoreCase(nameB);
    }
 
    private boolean matchesSearch(Item item) {
       if (this.filterText.isEmpty()) return true;
       ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
-      if (this.filterText.startsWith("@")) {
-         String modQuery = this.filterText.substring(1).trim();
-         return id.getNamespace().toLowerCase(Locale.ROOT).contains(modQuery);
-      }
+      String namespace = id.getNamespace().toLowerCase(Locale.ROOT);
+      String path = id.getPath().toLowerCase(Locale.ROOT);
       String name = item.getDescription().getString().toLowerCase(Locale.ROOT);
-      return name.contains(this.filterText) || id.toString().toLowerCase(Locale.ROOT).contains(this.filterText);
+
+      if (this.filterText.startsWith("@")) {
+         String modFilter = extractModFilter(this.filterText);
+         String itemQuery = extractItemQuery(this.filterText);
+
+         if (!namespace.contains(modFilter)) return false;
+         if (itemQuery.isEmpty()) return true;
+
+         return name.contains(itemQuery) || path.contains(itemQuery);
+      }
+
+      return name.contains(this.filterText) || path.contains(this.filterText) || id.toString().toLowerCase(Locale.ROOT).contains(this.filterText);
    }
 
    private boolean matchesCategory(Item item) {
