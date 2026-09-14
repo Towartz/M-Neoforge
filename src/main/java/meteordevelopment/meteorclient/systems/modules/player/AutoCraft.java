@@ -68,6 +68,8 @@ public class AutoCraft extends Module {
       NAVIGATING_TO_TABLE,
       OPENING_TABLE,
       CRAFTING,
+      WAITING_FOR_CRAFT_RESULT,
+      SETTLING,
       CLEANUP
    }
 
@@ -184,6 +186,14 @@ public class AutoCraft extends Module {
    private int craftRetryTicks = 0;
    private int gridResultWaitTicks = 0;
    private int consecutiveExhaustions = 0;
+   private Item pendingCraftItem = null;
+   private int pendingExpectedYield = 0;
+   private int pendingBeforeDirectCount = 0;
+   private int pendingBeforePoolCount = 0;
+   private int pendingSlot = -1;
+   private int pendingWaitTicks = 0;
+   private boolean pendingIsBackpack = false;
+   private int settleWaitTicks = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -213,8 +223,20 @@ public class AutoCraft extends Module {
       this.craftRetryTicks = 0;
       this.gridResultWaitTicks = 0;
       this.consecutiveExhaustions = 0;
+      this.settleWaitTicks = 0;
+      clearPendingCraft();
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
+   }
+
+   private void clearPendingCraft() {
+      this.pendingCraftItem = null;
+      this.pendingExpectedYield = 0;
+      this.pendingBeforeDirectCount = 0;
+      this.pendingBeforePoolCount = 0;
+      this.pendingSlot = -1;
+      this.pendingWaitTicks = 0;
+      this.pendingIsBackpack = false;
    }
 
    public void queueCraft(Item item, int count) {
@@ -284,6 +306,8 @@ public class AutoCraft extends Module {
          case NAVIGATING_TO_TABLE -> handleNavigatingToTable();
          case OPENING_TABLE -> handleOpeningTable();
          case CRAFTING -> handleCrafting();
+         case WAITING_FOR_CRAFT_RESULT -> handleWaitingForCraftResult();
+         case SETTLING -> handleSettling();
          case CLEANUP -> handleCleanup();
       }
    }
@@ -930,62 +954,19 @@ public class AutoCraft extends Module {
             ItemStack currentResult = menu.getSlot(info.resultSlot).getItem();
             if (!currentResult.isEmpty() && currentResult.is(this.currentTask.item)) {
                this.gridResultWaitTicks = 0;
-               int expectedYield = currentResult.getCount();
-               int beforeCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
+               this.pendingCraftItem = this.currentTask.item;
+               this.pendingExpectedYield = currentResult.getCount();
+               this.pendingBeforeDirectCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
+               List<Integer> srcSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
+               this.pendingBeforePoolCount = BackpackAdapter.getSourcePool(menu, srcSlots).getOrDefault(this.currentTask.item, 0);
+               this.pendingSlot = info.resultSlot;
+               this.pendingIsBackpack = true;
+               this.pendingWaitTicks = 0;
+
                InvUtils.shiftClick().slotId(info.resultSlot);
                BackpackAdapter.clearCache();
-               int afterCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
-               int actuallyCrafted = afterCount - beforeCount;
-               if (actuallyCrafted <= 0) {
-                  if (menu.getSlot(info.resultSlot).getItem().isEmpty()) {
-                     actuallyCrafted = expectedYield;
-                  } else {
-                     int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.currentTask.item);
-                     if (freeSpace > 0 && this.craftRetryTicks < 3) {
-                        this.craftRetryTicks++;
-                        this.timer = 2;
-                        return;
-                     }
-                     int deposited = BackpackAdapter.depositItemToBackpack(menu, this.currentTask.item);
-                     if (deposited > 0) {
-                        this.craftRetryTicks = 0;
-                        this.timer = this.craftDelay.get();
-                        return;
-                     }
-                     int freed = BackpackAdapter.makeRoomInInventory(menu, 2);
-                     if (freed > 0) {
-                        this.craftRetryTicks = 0;
-                        this.timer = 2;
-                        return;
-                     }
-                     Set<Item> needed = new HashSet<>();
-                     for (Ingredient ing : CraftRecipeHelper.getGridIngredients(this.activeRecipe, true)) {
-                        if (ing != null && !ing.isEmpty()) {
-                           for (ItemStack is : ing.getItems()) needed.add(is.getItem());
-                        }
-                     }
-                     int clutterDeposited = BackpackAdapter.depositExcept(menu, needed);
-                     if (clutterDeposited > 0) {
-                        this.craftRetryTicks = 0;
-                        this.timer = this.craftDelay.get();
-                        return;
-                     }
-                     this.error("Inventory full: cannot collect crafted item from backpack.");
-                     this.cancelTask();
-                     return;
-                  }
-               }
-
-               this.craftRetryTicks = 0;
-               this.consecutiveExhaustions = 0;
-               this.currentTask.remainingCount -= actuallyCrafted;
-               this.info("Crafted (highlight)%dx %s(default) via backpack (remaining: %d).", actuallyCrafted, this.currentTask.item.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
-               this.timer = this.craftDelay.get();
-
-               if (this.currentTask.remainingCount <= 0) {
-                  this.currentTask = null;
-                  this.state = State.RESOLVING;
-               }
+               this.state = State.WAITING_FOR_CRAFT_RESULT;
+               this.timer = 1;
                return;
             }
 
@@ -1096,46 +1077,18 @@ public class AutoCraft extends Module {
       ItemStack currentResult = menu.getSlot(0).getItem();
       if (!currentResult.isEmpty() && currentResult.is(this.currentTask.item)) {
          this.gridResultWaitTicks = 0;
-         int expectedYield = currentResult.getCount();
-         int beforeCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
+         this.pendingCraftItem = this.currentTask.item;
+         this.pendingExpectedYield = currentResult.getCount();
+         this.pendingBeforeDirectCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
+         this.pendingBeforePoolCount = this.pendingBeforeDirectCount;
+         this.pendingSlot = 0;
+         this.pendingIsBackpack = false;
+         this.pendingWaitTicks = 0;
+
          InvUtils.shiftClick().slotId(0);
          BackpackAdapter.clearCache();
-         int afterCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
-         int actuallyCrafted = afterCount - beforeCount;
-         if (actuallyCrafted <= 0) {
-            if (menu.getSlot(0).getItem().isEmpty()) {
-               actuallyCrafted = expectedYield;
-            } else {
-               int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.currentTask.item);
-               if (freeSpace > 0 && this.craftRetryTicks < 3) {
-                  this.craftRetryTicks++;
-                  this.timer = 2;
-                  return;
-               }
-               if (BackpackAdapter.isWearingBackpack() || BackpackAdapter.findBackpackInInventory().found()) {
-                  this.info("Inventory full: offloading items to backpack storage...");
-                  this.mc.player.closeContainer();
-                  this.timer = this.craftDelay.get() + 2;
-                  this.state = State.OFFLOADING_TO_BACKPACK;
-                  this.craftRetryTicks = 0;
-                  return;
-               }
-               this.error("Inventory full: cannot collect crafted item.");
-               this.cancelTask();
-               return;
-            }
-         }
-
-         this.craftRetryTicks = 0;
-         this.consecutiveExhaustions = 0;
-         this.currentTask.remainingCount -= actuallyCrafted;
-         this.info("Crafted (highlight)%dx %s(default) (remaining: %d).", actuallyCrafted, this.currentTask.item.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
-         this.timer = this.craftDelay.get();
-
-         if (this.currentTask.remainingCount <= 0) {
-            this.currentTask = null;
-            this.state = State.RESOLVING;
-         }
+         this.state = State.WAITING_FOR_CRAFT_RESULT;
+         this.timer = 1;
          return;
       }
 
@@ -1228,6 +1181,118 @@ public class AutoCraft extends Module {
       }
 
       this.timer = this.craftDelay.get() + 1;
+   }
+
+   private void handleWaitingForCraftResult() {
+      if (this.currentTask == null || this.pendingCraftItem == null) {
+         clearPendingCraft();
+         this.state = State.RESOLVING;
+         return;
+      }
+
+      AbstractContainerMenu menu = this.mc.player.containerMenu;
+      this.pendingWaitTicks++;
+
+      int currentDirect = CraftRecipeHelper.countInInventory(this.pendingCraftItem);
+      int directGained = currentDirect - this.pendingBeforeDirectCount;
+
+      int poolGained = directGained;
+      if (this.pendingIsBackpack && BackpackAdapter.isBackpackMenu(menu)) {
+         BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
+         List<Integer> srcSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
+         int poolNow = BackpackAdapter.getSourcePool(menu, srcSlots).getOrDefault(this.pendingCraftItem, 0);
+         poolGained = poolNow - this.pendingBeforePoolCount;
+      }
+
+      int actuallyGained = Math.max(directGained, poolGained);
+
+      // Check 1: Direct inventory or backpack storage count increased
+      if (actuallyGained > 0) {
+         this.consecutiveExhaustions = 0;
+         this.craftRetryTicks = 0;
+         this.gridResultWaitTicks = 0;
+         this.currentTask.remainingCount -= actuallyGained;
+         this.info("Crafted (highlight)%dx %s(default) (remaining: %d).",
+            actuallyGained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
+         clearPendingCraft();
+
+         if (this.currentTask.remainingCount <= 0) {
+            this.currentTask = null;
+            this.settleWaitTicks = 3;
+            this.state = State.SETTLING;
+            this.timer = 1;
+         } else {
+            this.state = State.CRAFTING;
+            this.timer = this.craftDelay.get();
+         }
+         return;
+      }
+
+      // Check 2: Result slot was emptied by server
+      if (this.pendingWaitTicks >= 2 && menu != null && this.pendingSlot >= 0 && this.pendingSlot < menu.slots.size()) {
+         ItemStack resultItem = menu.getSlot(this.pendingSlot).getItem();
+         if (resultItem.isEmpty()) {
+            int gained = Math.max(1, this.pendingExpectedYield);
+            this.consecutiveExhaustions = 0;
+            this.craftRetryTicks = 0;
+            this.gridResultWaitTicks = 0;
+            this.currentTask.remainingCount -= gained;
+            this.info("Crafted (highlight)%dx %s(default) via server sync (remaining: %d).",
+               gained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
+            clearPendingCraft();
+
+            if (this.currentTask.remainingCount <= 0) {
+               this.currentTask = null;
+               this.settleWaitTicks = 3;
+               this.state = State.SETTLING;
+               this.timer = 1;
+            } else {
+               this.state = State.CRAFTING;
+               this.timer = this.craftDelay.get();
+            }
+            return;
+         }
+      }
+
+      // Check 3: Timeout after 30 ticks (1.5 seconds)
+      if (this.pendingWaitTicks > 30) {
+         int freeSpace = CraftRecipeHelper.getFreeSpaceFor(this.pendingCraftItem);
+         if (freeSpace <= 0) {
+            if (this.pendingIsBackpack && BackpackAdapter.isBackpackMenu(menu)) {
+               int deposited = BackpackAdapter.depositItemToBackpack(menu, this.pendingCraftItem);
+               if (deposited > 0) {
+                  clearPendingCraft();
+                  this.state = State.CRAFTING;
+                  this.timer = this.craftDelay.get();
+                  return;
+               }
+            } else if (BackpackAdapter.isWearingBackpack() || BackpackAdapter.findBackpackInInventory().found()) {
+               this.info("Inventory full: offloading items to backpack storage...");
+               this.mc.player.closeContainer();
+               this.timer = this.craftDelay.get() + 2;
+               this.state = State.OFFLOADING_TO_BACKPACK;
+               clearPendingCraft();
+               return;
+            }
+         }
+
+         this.warning("Craft confirmation timed out. Resynchronizing container...");
+         clearPendingCraft();
+         this.state = State.CRAFTING;
+         this.timer = this.craftDelay.get() + 2;
+         return;
+      }
+
+      this.timer = 1;
+   }
+
+   private void handleSettling() {
+      this.settleWaitTicks--;
+      if (this.settleWaitTicks <= 0) {
+         this.settleWaitTicks = 0;
+         this.state = State.RESOLVING;
+         this.timer = 1;
+      }
    }
 
    private GridPlaceResult placeBackpackGrid(AbstractContainerMenu menu, BackpackAdapter.BackpackCraftInfo info, RecipeHolder<CraftingRecipe> recipe, int batchCount) {

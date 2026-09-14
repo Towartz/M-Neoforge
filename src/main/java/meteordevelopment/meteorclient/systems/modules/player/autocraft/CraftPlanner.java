@@ -113,10 +113,10 @@ public class CraftPlanner {
          RecipeHolder<CraftingRecipe> recipe = null;
 
          // Check decompression first (e.g. Iron Block -> 9 Iron Ingots)
-         RecipeHolder<CraftingRecipe> decomp = CraftRecipeHelper.findDecompressionRecipe(item);
+         RecipeHolder<CraftingRecipe> decomp = CraftRecipeHelper.findDecompressionRecipe(item, virtualInv);
          if (decomp != null) {
             Item source = CraftRecipeHelper.getSingleIngredientItem(decomp);
-            if (source != null && (virtualInv.getOrDefault(source, 0) > 0 || CraftRecipeHelper.countInInventory(source) > 0)) {
+            if (source != null && virtualInv.getOrDefault(source, 0) > 0) {
                recipe = decomp;
             }
          }

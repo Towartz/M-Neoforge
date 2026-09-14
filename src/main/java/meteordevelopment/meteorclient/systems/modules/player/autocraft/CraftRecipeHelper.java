@@ -129,6 +129,10 @@ public class CraftRecipeHelper {
    }
 
    public static RecipeHolder<CraftingRecipe> findDecompressionRecipe(Item item) {
+      return findDecompressionRecipe(item, null);
+   }
+
+   public static RecipeHolder<CraftingRecipe> findDecompressionRecipe(Item item, Map<Item, Integer> pool) {
       if (MeteorClient.mc.level == null || item == null) return null;
 
       RecipeHolder<CraftingRecipe> best = null;
@@ -141,7 +145,9 @@ public class CraftRecipeHelper {
          Item source = getSingleIngredientItem(holder);
          if (source == null || source == item) continue;
 
-         int haveSource = countInInventory(source);
+         int haveSource = (pool != null)
+            ? pool.getOrDefault(source, 0)
+            : (countInInventory(source) + BackpackAdapter.countInAllBackpacks(source));
          if (haveSource > 0 && haveSource > bestCount) {
             best = holder;
             bestCount = haveSource;
