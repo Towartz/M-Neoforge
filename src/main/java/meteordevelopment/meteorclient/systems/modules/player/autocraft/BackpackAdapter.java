@@ -593,11 +593,23 @@ public class BackpackAdapter {
                   items.add(st);
                }
             }
-            cachedAllBackpackItems = items;
-            cachedBackpackTick = currentTick;
-            cachedContainerId = currentContainer;
-            return items;
          }
+         // Include items in the backpack crafting grid so placed ingredients remain counted
+         if (info.gridStart != -1 && info.gridEnd != -1) {
+            for (int i = info.gridStart; i <= Math.min(info.gridEnd, MeteorClient.mc.player.containerMenu.slots.size() - 1); i++) {
+               ItemStack st = MeteorClient.mc.player.containerMenu.slots.get(i).getItem();
+               if (!st.isEmpty()) {
+                  items.add(st);
+               }
+            }
+         }
+         // Include items in carried inventory backpacks
+         items.addAll(getInventoryBackpackItems());
+
+         cachedAllBackpackItems = items;
+         cachedBackpackTick = currentTick;
+         cachedContainerId = currentContainer;
+         return items;
       }
 
       items.addAll(getWornBackpackItems());
@@ -933,6 +945,37 @@ public class BackpackAdapter {
                   moved += (countBefore - countAfter);
                } else {
                   break;
+               }
+            }
+         }
+      }
+      if (moved > 0) {
+         clearCache();
+      }
+      return moved;
+   }
+
+   public static int makeRoomInInventory(AbstractContainerMenu menu, int targetFreeSlots) {
+      if (menu == null || !isBackpackMenu(menu) || MeteorClient.mc.player == null) return 0;
+      int empty = CraftRecipeHelper.getEmptyInventorySlots();
+      if (empty >= targetFreeSlots) return 0;
+
+      int moved = 0;
+      for (int i = 0; i < menu.slots.size(); i++) {
+         Slot slot = menu.slots.get(i);
+         if (slot.container instanceof net.minecraft.world.entity.player.Inventory) {
+            int invSlot = slot.getContainerSlot();
+            // Preserve hotbar slots 0..8 so tools/weapons/food are not moved
+            if (invSlot < 9 || invSlot > 35) continue;
+            ItemStack stack = slot.getItem();
+            if (!stack.isEmpty()) {
+               int countBefore = stack.getCount();
+               InvUtils.shiftClick().slotId(i);
+               int countAfter = slot.getItem().getCount();
+               if (countAfter < countBefore) {
+                  moved += (countBefore - countAfter);
+                  empty = CraftRecipeHelper.getEmptyInventorySlots();
+                  if (empty >= targetFreeSlots) break;
                }
             }
          }

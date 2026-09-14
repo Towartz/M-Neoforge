@@ -13,6 +13,8 @@ import meteordevelopment.meteorclient.events.game.GameLeftEvent;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.NonNullList;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.CraftingRecipe;
@@ -312,6 +314,23 @@ public class CraftRecipeHelper {
          }
       }
 
+      // Include open crafting table grid slots
+      if (MeteorClient.mc.player.containerMenu instanceof CraftingMenu craftingMenu) {
+         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+            ItemStack stack = craftingMenu.slots.get(i).getItem();
+            if (!stack.isEmpty()) {
+               pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+            }
+         }
+      } else if (MeteorClient.mc.player.containerMenu instanceof InventoryMenu invMenu) {
+         for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
+            ItemStack stack = invMenu.slots.get(i).getItem();
+            if (!stack.isEmpty()) {
+               pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+            }
+         }
+      }
+
       if (!directOnly) {
          for (ItemStack stack : BackpackAdapter.getAllBackpackItems()) {
             if (!stack.isEmpty()) {
@@ -434,6 +453,21 @@ public class CraftRecipeHelper {
             count += stack.getCount();
          }
       }
+      if (MeteorClient.mc.player.containerMenu instanceof CraftingMenu craftingMenu) {
+         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+            ItemStack stack = craftingMenu.slots.get(i).getItem();
+            if (stack.is(item)) {
+               count += stack.getCount();
+            }
+         }
+      } else if (MeteorClient.mc.player.containerMenu instanceof InventoryMenu invMenu) {
+         for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
+            ItemStack stack = invMenu.slots.get(i).getItem();
+            if (stack.is(item)) {
+               count += stack.getCount();
+            }
+         }
+      }
       return count;
    }
 
@@ -445,6 +479,21 @@ public class CraftRecipeHelper {
          ItemStack stack = inv.getItem(i);
          if (ingredient.test(stack)) {
             count += stack.getCount();
+         }
+      }
+      if (MeteorClient.mc.player.containerMenu instanceof CraftingMenu craftingMenu) {
+         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+            ItemStack stack = craftingMenu.slots.get(i).getItem();
+            if (ingredient.test(stack)) {
+               count += stack.getCount();
+            }
+         }
+      } else if (MeteorClient.mc.player.containerMenu instanceof InventoryMenu invMenu) {
+         for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
+            ItemStack stack = invMenu.slots.get(i).getItem();
+            if (ingredient.test(stack)) {
+               count += stack.getCount();
+            }
          }
       }
       return count;

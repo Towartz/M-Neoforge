@@ -71,6 +71,12 @@ public class AutoCraft extends Module {
       CLEANUP
    }
 
+   public enum GridPlaceResult {
+      SUCCESS,
+      INGREDIENTS_DEPLETED,
+      BLOCKED
+   }
+
    public static class CraftTask {
       public final Item item;
       public int remainingCount;
@@ -174,6 +180,7 @@ public class AutoCraft extends Module {
    private int backpackTabWaitTicks = 0;
    private int navWaitTicks = 0;
    private int craftRetryTicks = 0;
+   private int gridResultWaitTicks = 0;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -201,6 +208,7 @@ public class AutoCraft extends Module {
       this.backpackTabWaitTicks = 0;
       this.navWaitTicks = 0;
       this.craftRetryTicks = 0;
+      this.gridResultWaitTicks = 0;
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
    }
@@ -445,7 +453,7 @@ public class AutoCraft extends Module {
          // 1. Deposit all crafted items of current task into backpack storage
          int depositedCrafted = BackpackAdapter.depositItemToBackpack(menu, this.currentTask.item);
 
-         // 2. If direct inventory space is still critically low, deposit any non-ingredient clutter
+         // 2. If direct inventory space is still critically low, deposit clutter or move excess stacks
          if (CraftRecipeHelper.getEmptyInventorySlots() <= 2 && this.activeRecipe != null) {
             Set<Item> ingredients = new HashSet<>();
             for (Ingredient ing : this.activeRecipe.value().getIngredients()) {
@@ -458,6 +466,12 @@ public class AutoCraft extends Module {
             int depositedOther = BackpackAdapter.depositExcept(menu, ingredients);
             if (depositedOther > 0) {
                this.info("Offloaded %d non-ingredient item(s) to backpack storage.", depositedOther);
+            }
+            if (CraftRecipeHelper.getEmptyInventorySlots() <= 1) {
+               int freed = BackpackAdapter.makeRoomInInventory(menu, 3);
+               if (freed > 0) {
+                  this.info("Freed inventory space by moving %d item(s) to backpack storage.", freed);
+               }
             }
          }
 
@@ -512,16 +526,7 @@ public class AutoCraft extends Module {
          return;
       }
 
-      // If single-ingredient conversion (e.g. Raw Iron Block -> Raw Iron) and we can craft at least 1:
-      // Immediately start crafting available conversion materials without searching chests!
-      boolean isSingleIngredient = CraftRecipeHelper.getSingleIngredientItem(this.activeRecipe) != null;
-      if (isSingleIngredient && CraftRecipeHelper.canSatisfy(this.activeRecipe, 1)) {
-         this.info("Converting available materials for %s (remaining count will adjust)...", this.currentTask.item.getDescription().getString());
-         startCraftingSequence();
-         return;
-      }
-
-      // Ingredients missing - use CraftPlanner to build full dependency tree
+      // Ingredients missing for full order - check if CraftPlanner can resolve full order recursively
       CraftPlanner.CraftPlan plan = null;
       if (this.recursiveCrafting.get()) {
          plan = CraftPlanner.createPlan(this.currentTask.item, this.currentTask.remainingCount);
@@ -545,7 +550,15 @@ public class AutoCraft extends Module {
          }
       }
 
-      // Missing ingredients not craftable from inventory - search chests
+      // If player has materials on-hand (in direct inventory, backpack, or open grid) to craft at least 1 batch:
+      // ALWAYS CRAFT ON-HAND MATERIALS FIRST! Never wander off searching chests while holding craftable materials!
+      if (CraftRecipeHelper.canSatisfy(this.activeRecipe, 1)) {
+         this.info("Crafting available on-hand materials for %s (remaining count will adjust)...", this.currentTask.item.getDescription().getString());
+         startCraftingSequence();
+         return;
+      }
+
+      // On-hand materials genuinely exhausted: search nearby chests if enabled
       Map<Item, Integer> neededForChest = (plan != null && !plan.missingRawMaterials.isEmpty())
          ? plan.missingRawMaterials
          : missing;
@@ -569,13 +582,6 @@ public class AutoCraft extends Module {
             }
             return;
          }
-      }
-
-      // If we can craft at least 1 item with materials currently on hand, craft available materials rather than aborting
-      if (CraftRecipeHelper.canSatisfy(this.activeRecipe, 1)) {
-         this.info("Partially crafting available materials for %s...", this.currentTask.item.getDescription().getString());
-         startCraftingSequence();
-         return;
       }
 
       // Missing materials and no chests available
@@ -874,6 +880,7 @@ public class AutoCraft extends Module {
             this.backpackTabWaitTicks = 0;
             ItemStack currentResult = menu.getSlot(info.resultSlot).getItem();
             if (!currentResult.isEmpty() && currentResult.is(this.currentTask.item)) {
+               this.gridResultWaitTicks = 0;
                int expectedYield = currentResult.getCount();
                int beforeCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
                InvUtils.shiftClick().slotId(info.resultSlot);
@@ -894,6 +901,12 @@ public class AutoCraft extends Module {
                      if (deposited > 0) {
                         this.craftRetryTicks = 0;
                         this.timer = this.craftDelay.get();
+                        return;
+                     }
+                     int freed = BackpackAdapter.makeRoomInInventory(menu, 2);
+                     if (freed > 0) {
+                        this.craftRetryTicks = 0;
+                        this.timer = 2;
                         return;
                      }
                      Set<Item> needed = new HashSet<>();
@@ -927,12 +940,21 @@ public class AutoCraft extends Module {
             }
 
             // Populate backpack crafting grid
-            placeBackpackGrid(menu, info, this.activeRecipe);
-
-            ItemStack afterBackpackPlace = menu.getSlot(info.resultSlot).getItem();
-            if (afterBackpackPlace.isEmpty() || !afterBackpackPlace.is(this.currentTask.item)) {
+            GridPlaceResult placeRes = placeBackpackGrid(menu, info, this.activeRecipe);
+            if (placeRes == GridPlaceResult.INGREDIENTS_DEPLETED) {
                if (this.currentTask.remainingCount > 0) {
                   this.info("Backpack crafting materials exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
+                  this.state = State.RESOLVING;
+                  this.timer = this.craftDelay.get() + 2;
+                  return;
+               }
+            } else if (placeRes == GridPlaceResult.BLOCKED) {
+               return;
+            } else {
+               this.gridResultWaitTicks++;
+               if (this.gridResultWaitTicks > 12) {
+                  this.warning("Backpack crafting grid result timed out. Resolving next batch...");
+                  this.gridResultWaitTicks = 0;
                   this.state = State.RESOLVING;
                   this.timer = this.craftDelay.get() + 2;
                   return;
@@ -978,6 +1000,7 @@ public class AutoCraft extends Module {
       // Check result slot 0
       ItemStack currentResult = menu.getSlot(0).getItem();
       if (!currentResult.isEmpty() && currentResult.is(this.currentTask.item)) {
+         this.gridResultWaitTicks = 0;
          int expectedYield = currentResult.getCount();
          int beforeCount = CraftRecipeHelper.countInInventory(this.currentTask.item);
          InvUtils.shiftClick().slotId(0);
@@ -1021,17 +1044,34 @@ public class AutoCraft extends Module {
       }
 
       // Place recipe into crafting grid via direct slot clicks
-      placeGridManually(menu, this.activeRecipe, table3x3);
+      GridPlaceResult placeRes = placeGridManually(menu, this.activeRecipe, table3x3);
 
       ItemStack afterPlace = menu.getSlot(0).getItem();
-      if (afterPlace.isEmpty() || !afterPlace.is(this.currentTask.item)) {
+      if (!afterPlace.isEmpty() && afterPlace.is(this.currentTask.item)) {
+         this.gridResultWaitTicks = 0;
+      } else if (placeRes == GridPlaceResult.INGREDIENTS_DEPLETED) {
          if (this.currentTask.remainingCount > 0) {
             this.info("Direct ingredients exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
             if (table3x3 && menu instanceof CraftingMenu) {
                this.mc.player.closeContainer();
             }
+            this.gridResultWaitTicks = 0;
             this.timer = this.craftDelay.get() + 2;
             this.state = State.RESOLVING;
+            return;
+         }
+      } else if (placeRes == GridPlaceResult.BLOCKED) {
+         return;
+      } else {
+         this.gridResultWaitTicks++;
+         if (this.gridResultWaitTicks > 12) {
+            this.warning("Crafting grid result timed out. Resolving next batch...");
+            if (table3x3 && menu instanceof CraftingMenu) {
+               this.mc.player.closeContainer();
+            }
+            this.gridResultWaitTicks = 0;
+            this.state = State.RESOLVING;
+            this.timer = this.craftDelay.get() + 2;
             return;
          }
       }
@@ -1039,7 +1079,7 @@ public class AutoCraft extends Module {
       this.timer = this.craftDelay.get() + 1;
    }
 
-   private void placeBackpackGrid(AbstractContainerMenu menu, BackpackAdapter.BackpackCraftInfo info, RecipeHolder<CraftingRecipe> recipe) {
+   private GridPlaceResult placeBackpackGrid(AbstractContainerMenu menu, BackpackAdapter.BackpackCraftInfo info, RecipeHolder<CraftingRecipe> recipe) {
       Ingredient[] grid = CraftRecipeHelper.getGridIngredients(recipe, true);
       List<Integer> sourceSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
 
@@ -1048,6 +1088,7 @@ public class AutoCraft extends Module {
          if (ing != null && !ing.isEmpty()) nonEmptyCount++;
       }
       boolean singleIngredient = (nonEmptyCount == 1);
+      boolean anyIngredientMissing = false;
 
       for (int i = 0; i < grid.length && (info.gridStart + i) <= info.gridEnd; i++) {
          Ingredient ing = grid[i];
@@ -1078,7 +1119,7 @@ public class AutoCraft extends Module {
                if (menu.getSlot(targetSlot).hasItem()) {
                   this.error("Inventory/backpack full: unable to clear crafting grid slot.");
                   this.cancelTask();
-                  return;
+                  return GridPlaceResult.BLOCKED;
                }
             }
          }
@@ -1153,11 +1194,28 @@ public class AutoCraft extends Module {
                   }
                }
             }
+         } else {
+            if (!menu.getSlot(targetSlot).hasItem()) {
+               anyIngredientMissing = true;
+            }
          }
       }
+
+      for (int i = 0; i < grid.length && (info.gridStart + i) <= info.gridEnd; i++) {
+         Ingredient ing = grid[i];
+         if (ing != null && !ing.isEmpty()) {
+            ItemStack inSlot = menu.getSlot(info.gridStart + i).getItem();
+            if (inSlot.isEmpty() || !ing.test(inSlot)) {
+               anyIngredientMissing = true;
+               break;
+            }
+         }
+      }
+
+      return anyIngredientMissing ? GridPlaceResult.INGREDIENTS_DEPLETED : GridPlaceResult.SUCCESS;
    }
 
-   private void placeGridManually(AbstractContainerMenu menu, RecipeHolder<CraftingRecipe> recipe, boolean table3x3) {
+   private GridPlaceResult placeGridManually(AbstractContainerMenu menu, RecipeHolder<CraftingRecipe> recipe, boolean table3x3) {
       Ingredient[] grid = CraftRecipeHelper.getGridIngredients(recipe, table3x3);
       int gridOffset = 1;
       int invStart = table3x3 ? 10 : 9;
@@ -1167,6 +1225,7 @@ public class AutoCraft extends Module {
          if (ing != null && !ing.isEmpty()) nonEmptyCount++;
       }
       boolean singleIngredient = (nonEmptyCount == 1);
+      boolean anyIngredientMissing = false;
 
       for (int i = 0; i < grid.length; i++) {
          Ingredient ing = grid[i];
@@ -1200,7 +1259,7 @@ public class AutoCraft extends Module {
                if (menu.getSlot(targetSlot).hasItem()) {
                   this.error("Inventory full: unable to clear crafting grid slot.");
                   this.cancelTask();
-                  return;
+                  return GridPlaceResult.BLOCKED;
                }
             }
          }
@@ -1275,8 +1334,25 @@ public class AutoCraft extends Module {
                   }
                }
             }
+         } else {
+            if (!menu.getSlot(targetSlot).hasItem()) {
+               anyIngredientMissing = true;
+            }
          }
       }
+
+      for (int i = 0; i < grid.length; i++) {
+         Ingredient ing = grid[i];
+         if (ing != null && !ing.isEmpty()) {
+            ItemStack inSlot = menu.getSlot(gridOffset + i).getItem();
+            if (inSlot.isEmpty() || !ing.test(inSlot)) {
+               anyIngredientMissing = true;
+               break;
+            }
+         }
+      }
+
+      return anyIngredientMissing ? GridPlaceResult.INGREDIENTS_DEPLETED : GridPlaceResult.SUCCESS;
    }
 
    private void handleCleanup() {
