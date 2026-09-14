@@ -575,9 +575,9 @@ public class AutoCraft extends Module {
             } else if (this.autoWalk.get() && BaritoneUtils.IS_AVAILABLE) {
                ContainerSearcher.navigateTo(this.targetChestPos);
                this.state = State.NAVIGATING_TO_CHEST;
-               this.info("Searching chest at [%d, %d, %d]...", this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
+               this.info("Searching %s at [%d, %d, %d]...", ContainerSearcher.getContainerName(this.targetChestPos), this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
             } else {
-               this.warning("Chest at [%d, %d, %d] is out of reach (auto-walk disabled).", this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
+               this.warning("%s at [%d, %d, %d] is out of reach (auto-walk disabled).", ContainerSearcher.getContainerName(this.targetChestPos), this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
                this.cancelTask();
             }
             return;
@@ -752,7 +752,7 @@ public class AutoCraft extends Module {
       int directTaken = this.containerSearcher.lootContainer(menu, needed, this.currentTask.item, this.currentTask.remainingCount);
       if (directTaken > 0) {
          this.currentTask.remainingCount -= directTaken;
-         this.info("Withdrew (highlight)%dx %s(default) from chest.", directTaken, this.currentTask.item.getDescription().getString());
+         this.info("Withdrew (highlight)%dx %s(default) from %s.", directTaken, this.currentTask.item.getDescription().getString(), ContainerSearcher.getContainerName(this.targetChestPos));
       }
 
       if (this.targetChestPos != null) {
@@ -939,11 +939,30 @@ public class AutoCraft extends Module {
                return;
             }
 
-            // Populate backpack crafting grid
-            GridPlaceResult placeRes = placeBackpackGrid(menu, info, this.activeRecipe);
+            // Calculate how many complete batches can be crafted from available sources
+            List<Integer> sourceSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
+            Map<Item, Integer> pool = BackpackAdapter.getSourcePool(menu, sourceSlots);
+            int maxBatch = CraftRecipeHelper.calculateMaxCraftsFromPool(this.activeRecipe, pool);
+            int yield = CraftRecipeHelper.getResultCount(this.activeRecipe);
+            int craftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / Math.max(1, yield));
+            int batchCount = Math.min(maxBatch, craftsNeeded);
+
+            if (batchCount <= 0) {
+               BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
+               this.info("Backpack crafting materials exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
+               this.gridResultWaitTicks = 0;
+               this.state = State.RESOLVING;
+               this.timer = this.craftDelay.get() + 2;
+               return;
+            }
+
+            // Populate backpack crafting grid with batchCount items per slot
+            GridPlaceResult placeRes = placeBackpackGrid(menu, info, this.activeRecipe, batchCount);
             if (placeRes == GridPlaceResult.INGREDIENTS_DEPLETED) {
                if (this.currentTask.remainingCount > 0) {
+                  BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
                   this.info("Backpack crafting materials exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
+                  this.gridResultWaitTicks = 0;
                   this.state = State.RESOLVING;
                   this.timer = this.craftDelay.get() + 2;
                   return;
@@ -1043,14 +1062,39 @@ public class AutoCraft extends Module {
          return;
       }
 
-      // Place recipe into crafting grid via direct slot clicks
-      GridPlaceResult placeRes = placeGridManually(menu, this.activeRecipe, table3x3);
+      // Calculate how many complete batches can be crafted from available inventory slots
+      int invStart = table3x3 ? 10 : 9;
+      List<Integer> tableSourceSlots = new ArrayList<>();
+      for (int s = invStart; s < menu.slots.size(); s++) {
+         tableSourceSlots.add(s);
+      }
+      Map<Item, Integer> tablePool = BackpackAdapter.getSourcePool(menu, tableSourceSlots);
+      int maxTableBatch = CraftRecipeHelper.calculateMaxCraftsFromPool(this.activeRecipe, tablePool);
+      int tableYield = CraftRecipeHelper.getResultCount(this.activeRecipe);
+      int tableCraftsNeeded = (int) Math.ceil((double) this.currentTask.remainingCount / Math.max(1, tableYield));
+      int tableBatchCount = Math.min(maxTableBatch, tableCraftsNeeded);
+
+      if (tableBatchCount <= 0) {
+         BackpackAdapter.clearGrid(menu, 1, table3x3 ? 9 : 4);
+         this.info("Direct ingredients exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
+         if (table3x3 && menu instanceof CraftingMenu) {
+            this.mc.player.closeContainer();
+         }
+         this.gridResultWaitTicks = 0;
+         this.timer = this.craftDelay.get() + 2;
+         this.state = State.RESOLVING;
+         return;
+      }
+
+      // Place recipe into crafting grid via direct slot clicks with tableBatchCount items per slot
+      GridPlaceResult placeRes = placeGridManually(menu, this.activeRecipe, table3x3, tableBatchCount);
 
       ItemStack afterPlace = menu.getSlot(0).getItem();
       if (!afterPlace.isEmpty() && afterPlace.is(this.currentTask.item)) {
          this.gridResultWaitTicks = 0;
       } else if (placeRes == GridPlaceResult.INGREDIENTS_DEPLETED) {
          if (this.currentTask.remainingCount > 0) {
+            BackpackAdapter.clearGrid(menu, 1, table3x3 ? 9 : 4);
             this.info("Direct ingredients exhausted (remaining: %d). Resolving next batch...", this.currentTask.remainingCount);
             if (table3x3 && menu instanceof CraftingMenu) {
                this.mc.player.closeContainer();
@@ -1079,16 +1123,9 @@ public class AutoCraft extends Module {
       this.timer = this.craftDelay.get() + 1;
    }
 
-   private GridPlaceResult placeBackpackGrid(AbstractContainerMenu menu, BackpackAdapter.BackpackCraftInfo info, RecipeHolder<CraftingRecipe> recipe) {
+   private GridPlaceResult placeBackpackGrid(AbstractContainerMenu menu, BackpackAdapter.BackpackCraftInfo info, RecipeHolder<CraftingRecipe> recipe, int batchCount) {
       Ingredient[] grid = CraftRecipeHelper.getGridIngredients(recipe, true);
       List<Integer> sourceSlots = BackpackAdapter.getAvailableSourceSlots(menu, info);
-
-      int nonEmptyCount = 0;
-      for (Ingredient ing : grid) {
-         if (ing != null && !ing.isEmpty()) nonEmptyCount++;
-      }
-      boolean singleIngredient = (nonEmptyCount == 1);
-      boolean anyIngredientMissing = false;
 
       for (int i = 0; i < grid.length && (info.gridStart + i) <= info.gridEnd; i++) {
          Ingredient ing = grid[i];
@@ -1102,102 +1139,81 @@ public class AutoCraft extends Module {
          }
 
          if (menu.getSlot(targetSlot).hasItem()) {
-            if (ing.test(menu.getSlot(targetSlot).getItem())) {
-               continue;
-            }
-            InvUtils.shiftClick().slotId(targetSlot);
-            if (menu.getSlot(targetSlot).hasItem()) {
-               if (info.storageStart != -1 && info.storageEnd != -1) {
-                  for (int s = info.storageStart; s <= info.storageEnd && s < menu.slots.size(); s++) {
-                     if (menu.slots.get(s).getItem().isEmpty()) {
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
-                        break;
-                     }
-                  }
-               }
+            ItemStack inSlot = menu.getSlot(targetSlot).getItem();
+            if (!ing.test(inSlot) || inSlot.getCount() > batchCount) {
+               InvUtils.shiftClick().slotId(targetSlot);
                if (menu.getSlot(targetSlot).hasItem()) {
-                  this.error("Inventory/backpack full: unable to clear crafting grid slot.");
-                  this.cancelTask();
-                  return GridPlaceResult.BLOCKED;
-               }
-            }
-         }
-
-         int foundSource = -1;
-         for (int s : sourceSlots) {
-            ItemStack stack = menu.getSlot(s).getItem();
-            if (ing.test(stack)) {
-               foundSource = s;
-               break;
-            }
-         }
-
-         if (foundSource != -1) {
-            ItemStack sourceStack = menu.getSlot(foundSource).getItem();
-            int sourceCount = sourceStack.getCount();
-
-            if (singleIngredient) {
-               int yield = CraftRecipeHelper.getResultCount(recipe);
-               int craftsNeeded = (this.currentTask != null)
-                  ? (int) Math.ceil((double) this.currentTask.remainingCount / Math.max(1, yield))
-                  : sourceCount;
-               int placeTarget = Math.min(craftsNeeded, sourceCount);
-               placeTarget = Math.max(1, Math.min(placeTarget, sourceStack.getMaxStackSize()));
-
-               if (placeTarget >= sourceCount && !menu.getSlot(targetSlot).hasItem()) {
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-               } else if (placeTarget > sourceCount / 2) {
-                  int excess = sourceCount - placeTarget;
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                  if (excess > 0) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                     for (int c = 0; c < excess; c++) {
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 1, ClickType.PICKUP, this.mc.player);
-                     }
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                  }
-               } else {
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  for (int c = 0; c < placeTarget; c++) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 1, ClickType.PICKUP, this.mc.player);
-                  }
-                  if (!menu.getCarried().isEmpty()) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  }
-               }
-            } else {
-               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 1, ClickType.PICKUP, this.mc.player);
-
-               for (int j = i + 1; j < grid.length && (info.gridStart + j) <= info.gridEnd; j++) {
-                  if (grid[j] != null && !grid[j].isEmpty() && !menu.getSlot(info.gridStart + j).hasItem()) {
-                     ItemStack carried = menu.getCarried();
-                     if (carried.isEmpty()) break;
-                     if (grid[j].test(carried)) {
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, info.gridStart + j, 1, ClickType.PICKUP, this.mc.player);
-                     }
-                  }
-               }
-
-               if (!menu.getCarried().isEmpty()) {
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  if (!menu.getCarried().isEmpty()) {
-                     for (int s : sourceSlots) {
-                        if (!menu.getSlot(s).hasItem()) {
+                  if (info.storageStart != -1 && info.storageEnd != -1) {
+                     for (int s = info.storageStart; s <= info.storageEnd && s < menu.slots.size(); s++) {
+                        if (menu.slots.get(s).getItem().isEmpty()) {
+                           this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
                            this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
                            break;
                         }
                      }
                   }
+                  if (menu.getSlot(targetSlot).hasItem()) {
+                     this.error("Inventory/backpack full: unable to clear crafting grid slot.");
+                     this.cancelTask();
+                     return GridPlaceResult.BLOCKED;
+                  }
                }
             }
-         } else {
-            if (!menu.getSlot(targetSlot).hasItem()) {
-               anyIngredientMissing = true;
+         }
+
+         int currentInSlot = (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem()))
+            ? menu.getSlot(targetSlot).getItem().getCount()
+            : 0;
+         int needed = batchCount - currentInSlot;
+
+         while (needed > 0) {
+            int foundSource = -1;
+            for (int s : sourceSlots) {
+               if (s == targetSlot) continue;
+               ItemStack stack = menu.getSlot(s).getItem();
+               if (!stack.isEmpty() && ing.test(stack)) {
+                  foundSource = s;
+                  break;
+               }
             }
+
+            if (foundSource == -1) {
+               break;
+            }
+
+            ItemStack sourceStack = menu.getSlot(foundSource).getItem();
+            int available = sourceStack.getCount();
+            int toMove = Math.min(needed, available);
+
+            if (toMove == available && !menu.getSlot(targetSlot).hasItem()) {
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+               if (!menu.getCarried().isEmpty()) {
+                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               }
+            } else if (toMove == available && menu.getSlot(targetSlot).hasItem() && menu.getSlot(targetSlot).getItem().is(sourceStack.getItem())) {
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+               if (!menu.getCarried().isEmpty()) {
+                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               }
+            } else {
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               for (int c = 0; c < toMove; c++) {
+                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 1, ClickType.PICKUP, this.mc.player);
+               }
+               if (!menu.getCarried().isEmpty()) {
+                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               }
+            }
+
+            int afterInSlot = (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem()))
+               ? menu.getSlot(targetSlot).getItem().getCount()
+               : 0;
+            int moved = afterInSlot - currentInSlot;
+            if (moved <= 0) break;
+            currentInSlot = afterInSlot;
+            needed = batchCount - currentInSlot;
          }
       }
 
@@ -1205,27 +1221,19 @@ public class AutoCraft extends Module {
          Ingredient ing = grid[i];
          if (ing != null && !ing.isEmpty()) {
             ItemStack inSlot = menu.getSlot(info.gridStart + i).getItem();
-            if (inSlot.isEmpty() || !ing.test(inSlot)) {
-               anyIngredientMissing = true;
-               break;
+            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() < batchCount) {
+               return GridPlaceResult.INGREDIENTS_DEPLETED;
             }
          }
       }
 
-      return anyIngredientMissing ? GridPlaceResult.INGREDIENTS_DEPLETED : GridPlaceResult.SUCCESS;
+      return GridPlaceResult.SUCCESS;
    }
 
-   private GridPlaceResult placeGridManually(AbstractContainerMenu menu, RecipeHolder<CraftingRecipe> recipe, boolean table3x3) {
+   private GridPlaceResult placeGridManually(AbstractContainerMenu menu, RecipeHolder<CraftingRecipe> recipe, boolean table3x3, int batchCount) {
       Ingredient[] grid = CraftRecipeHelper.getGridIngredients(recipe, table3x3);
       int gridOffset = 1;
       int invStart = table3x3 ? 10 : 9;
-
-      int nonEmptyCount = 0;
-      for (Ingredient ing : grid) {
-         if (ing != null && !ing.isEmpty()) nonEmptyCount++;
-      }
-      boolean singleIngredient = (nonEmptyCount == 1);
-      boolean anyIngredientMissing = false;
 
       for (int i = 0; i < grid.length; i++) {
          Ingredient ing = grid[i];
@@ -1239,105 +1247,84 @@ public class AutoCraft extends Module {
          }
 
          if (menu.getSlot(targetSlot).hasItem()) {
-            if (ing.test(menu.getSlot(targetSlot).getItem())) {
-               continue;
-            }
-            InvUtils.shiftClick().slotId(targetSlot);
-            if (menu.getSlot(targetSlot).hasItem()) {
-               ItemStack gridItem = menu.getSlot(targetSlot).getItem();
-               for (int s = invStart; s < menu.slots.size(); s++) {
-                  ItemStack sStack = menu.getSlot(s).getItem();
-                  if (sStack.is(gridItem.getItem()) && sStack.getCount() < sStack.getMaxStackSize()) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
-                     if (!menu.getCarried().isEmpty()) {
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                     }
-                     break;
-                  }
-               }
+            ItemStack inSlot = menu.getSlot(targetSlot).getItem();
+            if (!ing.test(inSlot) || inSlot.getCount() > batchCount) {
+               InvUtils.shiftClick().slotId(targetSlot);
                if (menu.getSlot(targetSlot).hasItem()) {
-                  this.error("Inventory full: unable to clear crafting grid slot.");
-                  this.cancelTask();
-                  return GridPlaceResult.BLOCKED;
+                  ItemStack gridItem = menu.getSlot(targetSlot).getItem();
+                  for (int s = invStart; s < menu.slots.size(); s++) {
+                     ItemStack sStack = menu.getSlot(s).getItem();
+                     if (sStack.is(gridItem.getItem()) && sStack.getCount() < sStack.getMaxStackSize()) {
+                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
+                        if (!menu.getCarried().isEmpty()) {
+                           this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+                        }
+                        break;
+                     }
+                  }
+                  if (menu.getSlot(targetSlot).hasItem()) {
+                     this.error("Inventory full: unable to clear crafting grid slot.");
+                     this.cancelTask();
+                     return GridPlaceResult.BLOCKED;
+                  }
                }
             }
          }
 
-         int foundSource = -1;
-         for (int s = invStart; s < menu.slots.size(); s++) {
-            ItemStack stack = menu.getSlot(s).getItem();
-            if (ing.test(stack)) {
-               foundSource = s;
+         int currentInSlot = (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem()))
+            ? menu.getSlot(targetSlot).getItem().getCount()
+            : 0;
+         int needed = batchCount - currentInSlot;
+
+         while (needed > 0) {
+            int foundSource = -1;
+            for (int s = invStart; s < menu.slots.size(); s++) {
+               if (s == targetSlot) continue;
+               ItemStack stack = menu.getSlot(s).getItem();
+               if (!stack.isEmpty() && ing.test(stack)) {
+                  foundSource = s;
+                  break;
+               }
+            }
+
+            if (foundSource == -1) {
                break;
             }
-         }
 
-         if (foundSource != -1) {
             ItemStack sourceStack = menu.getSlot(foundSource).getItem();
-            int sourceCount = sourceStack.getCount();
+            int available = sourceStack.getCount();
+            int toMove = Math.min(needed, available);
 
-            if (singleIngredient) {
-               int yield = CraftRecipeHelper.getResultCount(recipe);
-               int craftsNeeded = (this.currentTask != null)
-                  ? (int) Math.ceil((double) this.currentTask.remainingCount / Math.max(1, yield))
-                  : sourceCount;
-               int placeTarget = Math.min(craftsNeeded, sourceCount);
-               placeTarget = Math.max(1, Math.min(placeTarget, sourceStack.getMaxStackSize()));
-
-               if (placeTarget >= sourceCount && !menu.getSlot(targetSlot).hasItem()) {
+            if (toMove == available && !menu.getSlot(targetSlot).hasItem()) {
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+               if (!menu.getCarried().isEmpty()) {
                   this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-               } else if (placeTarget > sourceCount / 2) {
-                  int excess = sourceCount - placeTarget;
+               }
+            } else if (toMove == available && menu.getSlot(targetSlot).hasItem() && menu.getSlot(targetSlot).getItem().is(sourceStack.getItem())) {
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
+               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
+               if (!menu.getCarried().isEmpty()) {
                   this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                  if (excess > 0) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                     for (int c = 0; c < excess; c++) {
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 1, ClickType.PICKUP, this.mc.player);
-                     }
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 0, ClickType.PICKUP, this.mc.player);
-                  }
-               } else {
-                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  for (int c = 0; c < placeTarget; c++) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 1, ClickType.PICKUP, this.mc.player);
-                  }
-                  if (!menu.getCarried().isEmpty()) {
-                     this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  }
                }
             } else {
                this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-               this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 1, ClickType.PICKUP, this.mc.player);
-
-               for (int j = i + 1; j < grid.length; j++) {
-                  if (grid[j] != null && !grid[j].isEmpty() && !menu.getSlot(gridOffset + j).hasItem()) {
-                     ItemStack carried = menu.getCarried();
-                     if (carried.isEmpty()) break;
-                     if (grid[j].test(carried)) {
-                        this.mc.gameMode.handleInventoryMouseClick(menu.containerId, gridOffset + j, 1, ClickType.PICKUP, this.mc.player);
-                     }
-                  }
+               for (int c = 0; c < toMove; c++) {
+                  this.mc.gameMode.handleInventoryMouseClick(menu.containerId, targetSlot, 1, ClickType.PICKUP, this.mc.player);
                }
-
                if (!menu.getCarried().isEmpty()) {
                   this.mc.gameMode.handleInventoryMouseClick(menu.containerId, foundSource, 0, ClickType.PICKUP, this.mc.player);
-                  if (!menu.getCarried().isEmpty()) {
-                     for (int s = invStart; s < menu.slots.size(); s++) {
-                        if (!menu.getSlot(s).hasItem()) {
-                           this.mc.gameMode.handleInventoryMouseClick(menu.containerId, s, 0, ClickType.PICKUP, this.mc.player);
-                           break;
-                        }
-                     }
-                  }
                }
             }
-         } else {
-            if (!menu.getSlot(targetSlot).hasItem()) {
-               anyIngredientMissing = true;
-            }
+
+            int afterInSlot = (menu.getSlot(targetSlot).hasItem() && ing.test(menu.getSlot(targetSlot).getItem()))
+               ? menu.getSlot(targetSlot).getItem().getCount()
+               : 0;
+            int moved = afterInSlot - currentInSlot;
+            if (moved <= 0) break;
+            currentInSlot = afterInSlot;
+            needed = batchCount - currentInSlot;
          }
       }
 
@@ -1345,14 +1332,13 @@ public class AutoCraft extends Module {
          Ingredient ing = grid[i];
          if (ing != null && !ing.isEmpty()) {
             ItemStack inSlot = menu.getSlot(gridOffset + i).getItem();
-            if (inSlot.isEmpty() || !ing.test(inSlot)) {
-               anyIngredientMissing = true;
-               break;
+            if (inSlot.isEmpty() || !ing.test(inSlot) || inSlot.getCount() < batchCount) {
+               return GridPlaceResult.INGREDIENTS_DEPLETED;
             }
          }
       }
 
-      return anyIngredientMissing ? GridPlaceResult.INGREDIENTS_DEPLETED : GridPlaceResult.SUCCESS;
+      return GridPlaceResult.SUCCESS;
    }
 
    private void handleCleanup() {

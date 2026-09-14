@@ -537,6 +537,65 @@ public class CraftRecipeHelper {
       return hasAllInDirectInventory(holder, craftCount);
    }
 
+   public static boolean canCraftBatch(RecipeHolder<CraftingRecipe> holder, int count, Map<Item, Integer> pool) {
+      if (holder == null || count <= 0 || pool == null || pool.isEmpty()) return false;
+      Ingredient[] grid = getGridIngredients(holder, !is2x2(holder));
+      Map<Item, Integer> tempPool = new HashMap<>(pool);
+
+      for (Ingredient ing : grid) {
+         if (ing == null || ing.isEmpty()) continue;
+         int needed = count;
+         for (Map.Entry<Item, Integer> entry : tempPool.entrySet()) {
+            if (entry.getValue() > 0 && ing.test(entry.getKey().getDefaultInstance())) {
+               int take = Math.min(needed, entry.getValue());
+               entry.setValue(entry.getValue() - take);
+               needed -= take;
+               if (needed <= 0) break;
+            }
+         }
+         if (needed > 0) return false;
+      }
+      return true;
+   }
+
+   public static int calculateMaxCraftsFromPool(RecipeHolder<CraftingRecipe> holder, Map<Item, Integer> pool) {
+      if (holder == null || pool == null || pool.isEmpty()) return 0;
+      Ingredient[] grid = getGridIngredients(holder, !is2x2(holder));
+      int maxStack = 64;
+      for (Ingredient ing : grid) {
+         if (ing != null && !ing.isEmpty()) {
+            ItemStack[] items = ing.getItems();
+            if (items != null && items.length > 0) {
+               maxStack = Math.min(maxStack, items[0].getMaxStackSize());
+            }
+         }
+      }
+      if (MeteorClient.mc.level != null) {
+         ItemStack result = holder.value().getResultItem(MeteorClient.mc.level.registryAccess());
+         if (!result.isEmpty()) {
+            maxStack = Math.min(maxStack, result.getMaxStackSize());
+         }
+      }
+
+      int low = 1, high = maxStack, best = 0;
+      while (low <= high) {
+         int mid = (low + high) >>> 1;
+         if (canCraftBatch(holder, mid, pool)) {
+            best = mid;
+            low = mid + 1;
+         } else {
+            high = mid - 1;
+         }
+      }
+      return best;
+   }
+
+   public static int calculateMaxCrafts(RecipeHolder<CraftingRecipe> holder, boolean directOnly) {
+      if (holder == null || MeteorClient.mc.player == null) return 0;
+      Map<Item, Integer> pool = getAvailableInventoryPool(directOnly);
+      return calculateMaxCraftsFromPool(holder, pool);
+   }
+
    /**
     * Calculates the maximum number of crafts of the given recipe that can be performed
     * using only the items currently available in the player's direct inventory.

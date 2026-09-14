@@ -985,4 +985,28 @@ public class BackpackAdapter {
       }
       return moved;
    }
+
+   public static Map<Item, Integer> getSourcePool(AbstractContainerMenu menu, List<Integer> sourceSlots) {
+      Map<Item, Integer> pool = new HashMap<>();
+      if (menu == null || sourceSlots == null) return pool;
+      for (int s : sourceSlots) {
+         if (s >= 0 && s < menu.slots.size()) {
+            ItemStack stack = menu.getSlot(s).getItem();
+            if (!stack.isEmpty()) {
+               pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+            }
+         }
+      }
+      return pool;
+   }
+
+   public static void clearGrid(AbstractContainerMenu menu, int gridStart, int gridEnd) {
+      if (menu == null || gridStart == -1 || gridEnd == -1) return;
+      for (int i = gridStart; i <= Math.min(gridEnd, menu.slots.size() - 1); i++) {
+         if (menu.getSlot(i).hasItem()) {
+            InvUtils.shiftClick().slotId(i);
+         }
+      }
+      clearCache();
+   }
 }

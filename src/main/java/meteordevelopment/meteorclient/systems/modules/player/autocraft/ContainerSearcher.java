@@ -24,6 +24,11 @@ import net.minecraft.world.inventory.ShulkerBoxMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.BarrelBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -31,6 +36,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
 import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.world.level.block.entity.TrappedChestBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -51,20 +57,60 @@ public class ContainerSearcher {
 
    public List<BlockPos> findNearbyContainers(int radius) {
       List<BlockPos> containers = new ArrayList<>();
-      if (MeteorClient.mc.player == null) return containers;
+      if (MeteorClient.mc.player == null || MeteorClient.mc.level == null) return containers;
 
       double rSq = (double) radius * radius;
+      Set<BlockPos> found = new HashSet<>();
+
       for (BlockEntity be : Utils.blockEntities()) {
          if (isContainerBlockEntity(be)) {
             BlockPos pos = be.getBlockPos();
             if (!this.visitedContainers.contains(pos) && PlayerUtils.squaredDistanceTo(pos) <= rSq) {
                containers.add(pos);
+               found.add(pos);
+            }
+         }
+      }
+
+      // Also scan nearby blocks directly to ensure Ender Chests, Shulker Boxes, and Barrels are never missed
+      BlockPos playerPos = MeteorClient.mc.player.blockPosition();
+      int horiz = Math.min(radius, 24);
+      int vert = Math.min(radius, 12);
+      for (int x = -horiz; x <= horiz; x++) {
+         for (int y = -vert; y <= vert; y++) {
+            for (int z = -horiz; z <= horiz; z++) {
+               BlockPos check = playerPos.offset(x, y, z);
+               if (found.contains(check) || this.visitedContainers.contains(check)) continue;
+               if (PlayerUtils.squaredDistanceTo(check) > rSq) continue;
+               BlockState state = MeteorClient.mc.level.getBlockState(check);
+               if (isContainerBlock(state)) {
+                  containers.add(check);
+                  found.add(check);
+               }
             }
          }
       }
 
       containers.sort(Comparator.comparingDouble(PlayerUtils::squaredDistanceTo));
       return containers;
+   }
+
+   public static boolean isContainerBlock(BlockState state) {
+      if (state == null || state.isAir()) return false;
+      Block b = state.getBlock();
+      return b instanceof ChestBlock
+         || b instanceof BarrelBlock
+         || b instanceof ShulkerBoxBlock
+         || b == Blocks.ENDER_CHEST
+         || b == Blocks.CHEST
+         || b == Blocks.TRAPPED_CHEST
+         || b == Blocks.BARREL;
+   }
+
+   public static String getContainerName(BlockPos pos) {
+      if (pos == null || MeteorClient.mc.level == null) return "container";
+      BlockState state = MeteorClient.mc.level.getBlockState(pos);
+      return state.getBlock().getName().getString();
    }
 
    public static boolean isContainerBlockEntity(BlockEntity be) {
