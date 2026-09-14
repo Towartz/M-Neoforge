@@ -3,6 +3,7 @@ package meteordevelopment.meteorclient.gui.tabs;
 import java.util.ArrayList;
 import java.util.List;
 import meteordevelopment.meteorclient.gui.tabs.builtin.AutoCraftTab;
+import meteordevelopment.meteorclient.gui.tabs.builtin.ChunkScannerTab;
 import meteordevelopment.meteorclient.gui.tabs.builtin.ConfigTab;
 import meteordevelopment.meteorclient.gui.tabs.builtin.FriendsTab;
 import meteordevelopment.meteorclient.gui.tabs.builtin.GuiTab;
@@ -35,6 +36,7 @@ public class Tabs {
       add(new MacrosTab());
       add(new ProfilesTab());
       add(new AutoCraftTab());
+      add(new ChunkScannerTab());
       if (PathManagers.get().getSettings().get().sizeGroups() > 0) {
          add(new PathManagerTab());
       }

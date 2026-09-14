@@ -6,13 +6,17 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import meteordevelopment.meteorclient.gui.GuiTheme;
-import meteordevelopment.meteorclient.gui.WindowScreen;
+import meteordevelopment.meteorclient.gui.tabs.Tab;
+import meteordevelopment.meteorclient.gui.tabs.Tabs;
+import meteordevelopment.meteorclient.gui.tabs.WindowTabScreen;
+import meteordevelopment.meteorclient.gui.tabs.builtin.ChunkScannerTab;
 import meteordevelopment.meteorclient.gui.screens.settings.BlockListSettingScreen;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.gui.widgets.containers.WSection;
 import meteordevelopment.meteorclient.gui.widgets.containers.WTable;
 import meteordevelopment.meteorclient.gui.widgets.input.WTextBox;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.world.ChunkScanner;
 import meteordevelopment.meteorclient.systems.modules.world.ChunkScanner.ScanMode;
 import meteordevelopment.meteorclient.utils.world.ChunkScannerEngine;
@@ -26,7 +30,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 
-public class ChunkScannerScreen extends WindowScreen {
+public class ChunkScannerScreen extends WindowTabScreen {
    private final ChunkScanner module;
    private WTable table;
    private WTextBox searchBox;
@@ -47,13 +51,34 @@ public class ChunkScannerScreen extends WindowScreen {
       }
    }
 
+   public ChunkScannerScreen(GuiTheme theme, Tab tab) {
+      super(theme, tab != null ? tab : getOrCreateTab());
+      this.module = Modules.get().get(ChunkScanner.class);
+   }
+
    public ChunkScannerScreen(GuiTheme theme, ChunkScanner module) {
-      super(theme, "Chunk Scanner");
-      this.module = module;
+      super(theme, getOrCreateTab());
+      this.module = module != null ? module : Modules.get().get(ChunkScanner.class);
+   }
+
+   private static Tab getOrCreateTab() {
+      for (Tab t : Tabs.get()) {
+         if (t instanceof ChunkScannerTab) return t;
+      }
+      return new ChunkScannerTab();
    }
 
    @Override
    public void initWidgets() {
+      if (this.window != null && this.window.view != null) {
+         this.window.view.scrollOnlyWhenMouseOver = false;
+      }
+
+      if (this.module == null) {
+         this.add(this.theme.label("ChunkScanner module not found.")).expandX();
+         return;
+      }
+
       this.module.forceScan();
       ChunkScanResult result = this.module.getLastResult();
       if (result == null) {
