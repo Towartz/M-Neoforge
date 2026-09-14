@@ -21,25 +21,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin({Options.class})
 public abstract class GameOptionsMixin {
-   @Shadow
-   @Final
-   @Mutable
-   public KeyMapping[] keyMappings;
-
-   @Inject(
-      method = {"<init>(Lnet/minecraft/client/Minecraft;Ljava/io/File;)V"},
-      at = {@At(
-         value = "FIELD",
-         target = "Lnet/minecraft/client/option/GameOptions;allKeys:[Lnet/minecraft/client/option/KeyBinding;",
-         opcode = 181,
-         shift = Shift.AFTER
-      )},
-      require = 0
-   )
-   private void onInitAfterKeysAll(Minecraft client, File optionsFile, CallbackInfo info) {
-      this.keyMappings = KeyBinds.apply(this.keyMappings);
-   }
-
    @Inject(
       method = {"setPerspective"},
       at = {@At("HEAD")},

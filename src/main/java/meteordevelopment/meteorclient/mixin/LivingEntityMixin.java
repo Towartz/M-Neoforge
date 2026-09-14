@@ -89,31 +89,31 @@ public abstract class LivingEntityMixin extends Entity {
          if (!effect.isBound() || effect.value() == null) {
             return original;
          }
-      } catch (Throwable t) {
+         NoStatusEffects module = meteor$cachedNoStatusEffects;
+         if (module == null && Modules.get() != null) {
+            meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
+         }
+         if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
+            return false;
+         }
+         PotionSpoof potionSpoof = Modules.get() != null ? Modules.get().get(PotionSpoof.class) : null;
+         if (potionSpoof != null && potionSpoof.isActive() && potionSpoof.shouldBlock(effect.value())) {
+            return false;
+         }
+         NoRender noRender = meteor$cachedNoRender;
+         if (noRender == null && Modules.get() != null) {
+            meteor$cachedNoRender = noRender = Modules.get().get(NoRender.class);
+         }
+         if (noRender != null && noRender.isActive()) {
+            if (effect.is(MobEffects.BLINDNESS) && noRender.noBlindness()) {
+               return false;
+            }
+            if (effect.is(MobEffects.DARKNESS) && noRender.noDarkness()) {
+               return false;
+            }
+         }
+      } catch (Throwable ignored) {
          return original;
-      }
-      NoStatusEffects module = meteor$cachedNoStatusEffects;
-      if (module == null && Modules.get() != null) {
-         meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
-      }
-      if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
-         return false;
-      }
-      PotionSpoof potionSpoof = Modules.get() != null ? Modules.get().get(PotionSpoof.class) : null;
-      if (potionSpoof != null && potionSpoof.isActive() && potionSpoof.shouldBlock(effect.value())) {
-         return false;
-      }
-      NoRender noRender = meteor$cachedNoRender;
-      if (noRender == null && Modules.get() != null) {
-         meteor$cachedNoRender = noRender = Modules.get().get(NoRender.class);
-      }
-      if (noRender != null && noRender.isActive()) {
-         if (effect.is(MobEffects.BLINDNESS) && noRender.noBlindness()) {
-            return false;
-         }
-         if (effect.is(MobEffects.DARKNESS) && noRender.noDarkness()) {
-            return false;
-         }
       }
       return original;
    }
@@ -130,31 +130,31 @@ public abstract class LivingEntityMixin extends Entity {
          if (!effect.isBound() || effect.value() == null) {
             return original;
          }
-      } catch (Throwable t) {
+         NoStatusEffects module = meteor$cachedNoStatusEffects;
+         if (module == null && Modules.get() != null) {
+            meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
+         }
+         if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
+            return null;
+         }
+         PotionSpoof potionSpoof = Modules.get() != null ? Modules.get().get(PotionSpoof.class) : null;
+         if (potionSpoof != null && potionSpoof.isActive() && potionSpoof.shouldBlock(effect.value())) {
+            return null;
+         }
+         NoRender noRender = meteor$cachedNoRender;
+         if (noRender == null && Modules.get() != null) {
+            meteor$cachedNoRender = noRender = Modules.get().get(NoRender.class);
+         }
+         if (noRender != null && noRender.isActive()) {
+            if (effect.is(MobEffects.BLINDNESS) && noRender.noBlindness()) {
+               return null;
+            }
+            if (effect.is(MobEffects.DARKNESS) && noRender.noDarkness()) {
+               return null;
+            }
+         }
+      } catch (Throwable ignored) {
          return original;
-      }
-      NoStatusEffects module = meteor$cachedNoStatusEffects;
-      if (module == null && Modules.get() != null) {
-         meteor$cachedNoStatusEffects = module = Modules.get().get(NoStatusEffects.class);
-      }
-      if (module != null && module.isActive() && module.shouldBlock(effect.value())) {
-         return null;
-      }
-      PotionSpoof potionSpoof = Modules.get() != null ? Modules.get().get(PotionSpoof.class) : null;
-      if (potionSpoof != null && potionSpoof.isActive() && potionSpoof.shouldBlock(effect.value())) {
-         return null;
-      }
-      NoRender noRender = meteor$cachedNoRender;
-      if (noRender == null && Modules.get() != null) {
-         meteor$cachedNoRender = noRender = Modules.get().get(NoRender.class);
-      }
-      if (noRender != null && noRender.isActive()) {
-         if (effect.is(MobEffects.BLINDNESS) && noRender.noBlindness()) {
-            return null;
-         }
-         if (effect.is(MobEffects.DARKNESS) && noRender.noDarkness()) {
-            return null;
-         }
       }
       return original;
    }

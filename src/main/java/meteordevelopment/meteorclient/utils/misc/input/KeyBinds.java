@@ -21,7 +21,7 @@ public class KeyBinds {
    public static KeyMapping[] apply(KeyMapping[] binds) {
       if (binds == null) return binds;
       for (KeyMapping k : binds) {
-         if (k == OPEN_GUI) return binds;
+         if (k == OPEN_GUI || (k != null && k.getName() != null && (k.getName().equals(OPEN_GUI.getName()) || k.getName().equals(OPEN_COMMANDS.getName())))) return binds;
       }
       Map<String, Integer> categories = KeyBindingAccessor.getCategoryOrderMap();
       int highest = 0;
