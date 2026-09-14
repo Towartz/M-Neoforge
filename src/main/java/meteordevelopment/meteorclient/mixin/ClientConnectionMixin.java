@@ -37,6 +37,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import meteordevelopment.meteorclient.utils.network.NeoForgeNetwork;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import meteordevelopment.meteorclient.systems.config.Config;
+import meteordevelopment.meteorclient.utils.compat.WatutCompat;
 
 @Mixin({Connection.class})
 public abstract class ClientConnectionMixin {
@@ -99,6 +102,17 @@ public abstract class ClientConnectionMixin {
    )
    private void onSendPacketHead(Packet<?> packet, @Nullable PacketSendListener callbacks, boolean flush, CallbackInfo ci) {
       if (NeoForgeNetwork.isSilentSend()) return;
+
+      if (Config.get() != null && Config.get().hideWatutInGui.get()) {
+         if (packet instanceof ServerboundCustomPayloadPacket customPacket) {
+            if ("watut".equals(customPacket.payload().type().id().getNamespace())) {
+               if (WatutCompat.isMeteorScreen(MeteorClient.mc.screen) && !WatutCompat.isResetting) {
+                  ci.cancel();
+                  return;
+               }
+            }
+         }
+      }
 
       if (MeteorClient.EVENT_BUS.post(new PacketEvent.Send(packet, (Connection)(Object)this)).isCancelled()) {
          ci.cancel();

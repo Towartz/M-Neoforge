@@ -22,6 +22,7 @@ import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.CPSUtils;
 import meteordevelopment.meteorclient.utils.misc.MeteorStarscript;
 import meteordevelopment.meteorclient.utils.network.OnlinePlayers;
+import meteordevelopment.meteorclient.utils.compat.WatutCompat;
 import meteordevelopment.starscript.Script;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.MouseHandler;
@@ -169,6 +170,10 @@ public abstract class MinecraftClientMixin implements IMinecraftClient {
    private void onSetScreen(Screen screen, CallbackInfo info) {
       if (screen instanceof WidgetScreen) {
          screen.mouseMoved(this.mouseHandler.xpos() * this.window.getGuiScale(), this.mouseHandler.ypos() * this.window.getGuiScale());
+      }
+
+      if (WatutCompat.isMeteorScreen(screen) && Config.get() != null && Config.get().hideWatutInGui.get()) {
+         WatutCompat.resetGuiStatus();
       }
 
       OpenScreenEvent event = OpenScreenEvent.get(screen);

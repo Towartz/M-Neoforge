@@ -194,7 +194,8 @@
     "WorldRendererAccessor",
     "WorldRendererMixin",
     "YggdrasilMinecraftSessionServiceAccessor",
-    "compat.NtglClientPlayHandlerMixin"
+    "compat.NtglClientPlayHandlerMixin",
+    "compat.WatutPlayerStatusManagerClientMixin"
   ],
   "injectors": {
     "defaultRequire": 0

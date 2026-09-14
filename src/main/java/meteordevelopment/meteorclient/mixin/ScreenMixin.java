@@ -11,8 +11,10 @@ import meteordevelopment.meteorclient.systems.modules.render.NoRender;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.text.MeteorClickEvent;
 import meteordevelopment.meteorclient.utils.misc.text.RunnableClickEvent;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
+import meteordevelopment.meteorclient.utils.compat.WatutCompat;
 import net.minecraft.network.chat.Style;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
@@ -84,6 +86,18 @@ public abstract class ScreenMixin {
                info.setReturnValue(true);
             }
          }
+      }
+   }
+
+   @Inject(
+      method = {"renderWithTooltip"},
+      at = {@At("HEAD")},
+      cancellable = true
+   )
+   private void onRenderWithTooltip(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+      if (Config.get() != null && Config.get().hideWatutInGui.get() && WatutCompat.isMeteorScreen((Screen)(Object)this)) {
+         ((Screen)(Object)this).render(guiGraphics, mouseX, mouseY, delta);
+         ci.cancel();
       }
    }
 }

@@ -119,6 +119,14 @@ public class Config extends System<Config> {
             .defaultValue(Boolean.valueOf(true))
             .build()
       );
+   public final Setting<Boolean> hideWatutInGui = this.sgMisc
+      .add(
+         new BoolSetting.Builder()
+            .name("hide-watut-in-gui")
+            .description("Hides Watut mod GUI status, particles, and screen sharing when opening ClickGUI and Meteor menus.")
+            .defaultValue(Boolean.valueOf(true))
+            .build()
+      );
    public List<String> dontShowAgainPrompts = new ArrayList<>();
 
    public Config() {

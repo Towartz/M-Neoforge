@@ -114,6 +114,9 @@ public class MixinPlugin implements IMixinConfigPlugin {
          if (mixinClassName.contains("Ntgl")) {
             return isModLoaded("ntgl");
          }
+         if (mixinClassName.contains("Watut")) {
+            return isModLoaded("watut");
+         }
          return true;
       } else {
          return mixinClassName.startsWith("meteordevelopment.meteorclient.mixin.viafabricplus") ? isVFPPresent : true;
