@@ -352,13 +352,19 @@ public class AutoCraftScreen extends WindowTabScreen {
 
          boolean canSatisfyIng = (haveCount >= reqCount || equivCount >= reqCount);
          if (!canSatisfyIng) {
-            RecipeHolder<CraftingRecipe> sub = CraftRecipeHelper.findBestRecipe(reqItem);
-            if (sub != null) {
-               int subYield = CraftRecipeHelper.getResultCount(sub);
-               int subNeeded = (int) Math.ceil((double) (reqCount - haveCount) / subYield);
-               if (CraftRecipeHelper.canSatisfyRecursive(sub, subNeeded, 3)) {
-                  canSatisfyIng = true;
-                  haveText += " (Craftable)";
+            CraftPlanner.CraftPlan subPlan = CraftPlanner.createPlan(reqItem, reqCount - haveCount);
+            if (subPlan.isSatisfied) {
+               canSatisfyIng = true;
+               haveText += " (Craftable)";
+            } else {
+               RecipeHolder<CraftingRecipe> sub = CraftRecipeHelper.findBestRecipe(reqItem);
+               if (sub != null) {
+                  int subYield = CraftRecipeHelper.getResultCount(sub);
+                  int subNeeded = (int) Math.ceil((double) (reqCount - haveCount) / subYield);
+                  if (CraftRecipeHelper.canSatisfyRecursive(sub, subNeeded, 3)) {
+                     canSatisfyIng = true;
+                     haveText += " (Craftable)";
+                  }
                }
             }
          }

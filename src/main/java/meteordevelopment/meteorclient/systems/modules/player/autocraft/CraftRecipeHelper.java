@@ -117,27 +117,33 @@ public class CraftRecipeHelper {
    }
 
    public static List<RecipeHolder<CraftingRecipe>> getCandidateRecipes(Item item) {
+      return getCandidateRecipes(item, null);
+   }
+
+   public static List<RecipeHolder<CraftingRecipe>> getCandidateRecipes(Item item, Map<Item, Integer> pool) {
       List<RecipeHolder<CraftingRecipe>> raw = getRecipesFor(item);
       if (raw.isEmpty()) return Collections.emptyList();
       if (raw.size() == 1) return raw;
 
       List<RecipeHolder<CraftingRecipe>> candidates = new ArrayList<>(raw);
       candidates.sort((a, b) -> {
-         // 1. Direct satisfaction in inventory (highest priority)
-         boolean satA = canSatisfy(a, 1, false);
-         boolean satB = canSatisfy(b, 1, false);
+         // 1. Direct satisfaction in pool/inventory (highest priority)
+         boolean satA = (pool != null) ? canSatisfy(a, 1, false, pool) : canSatisfy(a, 1, false);
+         boolean satB = (pool != null) ? canSatisfy(b, 1, false, pool) : canSatisfy(b, 1, false);
          if (satA != satB) return satA ? -1 : 1;
 
          // 2. Decompression with owned storage block
          Item srcA = getSingleIngredientItem(a);
          Item srcB = getSingleIngredientItem(b);
-         boolean ownsDecompA = isDecompressionRecipe(a) && srcA != null && countInInventory(srcA) > 0;
-         boolean ownsDecompB = isDecompressionRecipe(b) && srcB != null && countInInventory(srcB) > 0;
+         int countA = (srcA != null) ? ((pool != null) ? pool.getOrDefault(srcA, 0) : countInInventory(srcA)) : 0;
+         int countB = (srcB != null) ? ((pool != null) ? pool.getOrDefault(srcB, 0) : countInInventory(srcB)) : 0;
+         boolean ownsDecompA = isDecompressionRecipe(a) && countA > 0;
+         boolean ownsDecompB = isDecompressionRecipe(b) && countB > 0;
          if (ownsDecompA != ownsDecompB) return ownsDecompA ? -1 : 1;
 
          // 3. Decompression satisfaction
-         boolean decompSatA = canSatisfy(a, 1, true);
-         boolean decompSatB = canSatisfy(b, 1, true);
+         boolean decompSatA = (pool != null) ? canSatisfy(a, 1, true, pool) : canSatisfy(a, 1, true);
+         boolean decompSatB = (pool != null) ? canSatisfy(b, 1, true, pool) : canSatisfy(b, 1, true);
          if (decompSatA != decompSatB) return decompSatA ? -1 : 1;
 
          // 4. Heavily penalize 1:1 conversion recipes where player does NOT own the input item
@@ -159,7 +165,11 @@ public class CraftRecipeHelper {
    }
 
    public static RecipeHolder<CraftingRecipe> findBestRecipe(Item item) {
-      List<RecipeHolder<CraftingRecipe>> candidates = getCandidateRecipes(item);
+      return findBestRecipe(item, null);
+   }
+
+   public static RecipeHolder<CraftingRecipe> findBestRecipe(Item item, Map<Item, Integer> pool) {
+      List<RecipeHolder<CraftingRecipe>> candidates = getCandidateRecipes(item, pool);
       return candidates.isEmpty() ? null : candidates.get(0);
    }
 
@@ -256,19 +266,23 @@ public class CraftRecipeHelper {
    }
 
    public static boolean canSatisfy(RecipeHolder<CraftingRecipe> holder, int craftCount) {
-      return canSatisfy(holder, craftCount, false);
+      return canSatisfy(holder, craftCount, false, null);
    }
 
    public static boolean canSatisfy(RecipeHolder<CraftingRecipe> holder, int craftCount, boolean allowDecompression) {
+      return canSatisfy(holder, craftCount, allowDecompression, null);
+   }
+
+   public static boolean canSatisfy(RecipeHolder<CraftingRecipe> holder, int craftCount, boolean allowDecompression, Map<Item, Integer> pool) {
       if (holder == null || craftCount <= 0 || MeteorClient.mc.level == null) return false;
 
-      Map<Item, Integer> pool = getAvailableInventoryPool(false);
+      Map<Item, Integer> workingPool = (pool != null) ? new HashMap<>(pool) : getAvailableInventoryPool(false);
 
       for (Ingredient ingredient : holder.value().getIngredients()) {
          if (ingredient.isEmpty()) continue;
          int needed = craftCount;
 
-         for (Map.Entry<Item, Integer> entry : pool.entrySet()) {
+         for (Map.Entry<Item, Integer> entry : workingPool.entrySet()) {
             if (entry.getValue() > 0 && ingredient.test(entry.getKey().getDefaultInstance())) {
                int take = Math.min(needed, entry.getValue());
                entry.setValue(entry.getValue() - take);
@@ -285,7 +299,18 @@ public class CraftRecipeHelper {
             if (matching != null) {
                for (ItemStack stack : matching) {
                   Item it = stack.getItem();
-                  decompSurplus = Math.max(decompSurplus, countEquivalentInInventory(it) - countInInventory(it));
+                  if (pool != null) {
+                     RecipeHolder<CraftingRecipe> decomp = findDecompressionRecipe(it, workingPool);
+                     if (decomp != null) {
+                        Item src = getSingleIngredientItem(decomp);
+                        if (src != null) {
+                           int srcCount = workingPool.getOrDefault(src, 0);
+                           decompSurplus += srcCount * (getResultCount(decomp) - 1);
+                        }
+                     }
+                  } else {
+                     decompSurplus = Math.max(decompSurplus, countEquivalentInInventory(it) - countInInventory(it));
+                  }
                }
             }
             if (decompSurplus < needed) return false;
@@ -383,36 +408,140 @@ public class CraftRecipeHelper {
       return pool;
    }
 
-   public static Item getRepresentativeItem(Ingredient ingredient, boolean directOnly) {
-      if (ingredient == null || ingredient.isEmpty()) return null;
-      ItemStack[] matching = ingredient.getItems();
-      if (matching == null || matching.length == 0) return null;
+   public static int getCraftabilityScore(Item item, Map<Item, Integer> pool, boolean directOnly) {
+      if (item == null) return 0;
+      int score = 0;
 
-      // 1. Prefer an item the player already owns
-      for (ItemStack stack : matching) {
-         Item item = stack.getItem();
-         int count = directOnly ? countInDirectInventory(item) : countInInventory(item);
-         if (count > 0) {
-            return item;
+      // 1. Direct availability in pool
+      int inPool = (pool != null)
+         ? pool.getOrDefault(item, 0)
+         : (directOnly ? countInDirectInventory(item) : countInInventory(item));
+      if (inPool > 0) {
+         score += 10000 + inPool;
+      }
+
+      // 2. Decompression available from pool
+      RecipeHolder<CraftingRecipe> decomp = findDecompressionRecipe(item, pool);
+      if (decomp != null) {
+         Item source = getSingleIngredientItem(decomp);
+         int sourceCount = (source != null)
+            ? ((pool != null) ? pool.getOrDefault(source, 0) : (directOnly ? countInDirectInventory(source) : countInInventory(source)))
+            : 0;
+         if (sourceCount > 0) {
+            score += 5000 + (sourceCount * getResultCount(decomp));
          }
       }
 
-      // 2. Prefer an item that can be decompressed from an owned storage block
-      if (!directOnly) {
-         for (ItemStack stack : matching) {
-            Item item = stack.getItem();
-            RecipeHolder<CraftingRecipe> decomp = findDecompressionRecipe(item);
-            if (decomp != null) {
-               Item source = getSingleIngredientItem(decomp);
-               if (source != null && countInInventory(source) > 0) {
-                  return item;
+      // 3. Recipes craftable directly from pool items
+      List<RecipeHolder<CraftingRecipe>> recipes = getRecipesFor(item);
+      for (RecipeHolder<CraftingRecipe> recipe : recipes) {
+         if (is1to1Conversion(recipe)) continue;
+
+         boolean canSatisfyDirect = true;
+         int matsCount = 0;
+         for (Ingredient ing : recipe.value().getIngredients()) {
+            if (ing.isEmpty()) continue;
+            boolean ingFound = false;
+            if (pool != null) {
+               for (Map.Entry<Item, Integer> e : pool.entrySet()) {
+                  if (e.getValue() > 0 && ing.test(e.getKey().getDefaultInstance())) {
+                     ingFound = true;
+                     matsCount += e.getValue();
+                     break;
+                  }
                }
+            } else {
+               for (ItemStack st : ing.getItems()) {
+                  int cnt = directOnly ? countInDirectInventory(st.getItem()) : countInInventory(st.getItem());
+                  if (cnt > 0) {
+                     ingFound = true;
+                     matsCount += cnt;
+                     break;
+                  }
+               }
+            }
+            if (!ingFound) {
+               canSatisfyDirect = false;
+               break;
+            }
+         }
+
+         if (canSatisfyDirect) {
+            score = Math.max(score, 3000 + matsCount);
+         } else {
+            // Check if 1-level precursor is in pool (e.g. Cherry Log for Cherry Planks for Cherry Slab)
+            int precursorCount = 0;
+            for (Ingredient ing : recipe.value().getIngredients()) {
+               if (ing.isEmpty()) continue;
+               for (ItemStack matchStack : ing.getItems()) {
+                  Item matchItem = matchStack.getItem();
+                  for (RecipeHolder<CraftingRecipe> subRec : getRecipesFor(matchItem)) {
+                     if (is1to1Conversion(subRec)) continue;
+                     for (Ingredient subIng : subRec.value().getIngredients()) {
+                        if (subIng.isEmpty()) continue;
+                        if (pool != null) {
+                           for (Map.Entry<Item, Integer> e : pool.entrySet()) {
+                              if (e.getValue() > 0 && subIng.test(e.getKey().getDefaultInstance())) {
+                                 precursorCount += e.getValue();
+                              }
+                           }
+                        } else {
+                           for (ItemStack subSt : subIng.getItems()) {
+                              int cnt = directOnly ? countInDirectInventory(subSt.getItem()) : countInInventory(subSt.getItem());
+                              if (cnt > 0) {
+                                 precursorCount += cnt;
+                              }
+                           }
+                        }
+                     }
+                  }
+               }
+            }
+            if (precursorCount > 0) {
+               score = Math.max(score, 1000 + precursorCount);
             }
          }
       }
 
-      // 3. Fallback to first matching item
-      return matching[0].getItem();
+      return score;
+   }
+
+   public static List<Item> getCandidateItemsForIngredient(Ingredient ingredient, boolean directOnly, Map<Item, Integer> pool) {
+      if (ingredient == null || ingredient.isEmpty()) return Collections.emptyList();
+      ItemStack[] matching = ingredient.getItems();
+      if (matching == null || matching.length == 0) return Collections.emptyList();
+
+      List<Item> candidates = new ArrayList<>();
+      for (ItemStack st : matching) {
+         if (st != null && !st.isEmpty()) {
+            Item it = st.getItem();
+            if (!candidates.contains(it)) {
+               candidates.add(it);
+            }
+         }
+      }
+
+      if (candidates.size() <= 1) return candidates;
+
+      candidates.sort((a, b) -> {
+         int scoreA = getCraftabilityScore(a, pool, directOnly);
+         int scoreB = getCraftabilityScore(b, pool, directOnly);
+         if (scoreA != scoreB) {
+            return Integer.compare(scoreB, scoreA); // descending
+         }
+         return 0;
+      });
+
+      return candidates;
+   }
+
+   public static Item getRepresentativeItem(Ingredient ingredient, boolean directOnly, Map<Item, Integer> pool) {
+      List<Item> candidates = getCandidateItemsForIngredient(ingredient, directOnly, pool);
+      return candidates.isEmpty() ? null : candidates.get(0);
+   }
+
+   public static Item getRepresentativeItem(Ingredient ingredient, boolean directOnly) {
+      return getRepresentativeItem(ingredient, directOnly, getAvailableInventoryPool(directOnly));
    }
 
    public static Map<Item, Integer> getRequiredItems(RecipeHolder<CraftingRecipe> holder, int craftCount) {
@@ -436,7 +565,7 @@ public class CraftRecipeHelper {
          }
 
          if (needed > 0) {
-            Item rep = getRepresentativeItem(ingredient, false);
+            Item rep = getRepresentativeItem(ingredient, false, pool);
             if (rep != null) {
                map.put(rep, map.getOrDefault(rep, 0) + needed);
             }
@@ -474,7 +603,7 @@ public class CraftRecipeHelper {
          }
 
          if (needed > 0) {
-            Item rep = getRepresentativeItem(ingredient, directOnly);
+            Item rep = getRepresentativeItem(ingredient, directOnly, pool);
             if (rep != null) {
                missing.put(rep, missing.getOrDefault(rep, 0) + needed);
             }
@@ -585,16 +714,16 @@ public class CraftRecipeHelper {
 
       for (Ingredient ing : grid) {
          if (ing == null || ing.isEmpty()) continue;
-         int needed = count;
+         // In Minecraft crafting tables, a single grid slot can only hold items of ONE item type!
+         Item chosen = null;
          for (Map.Entry<Item, Integer> entry : tempPool.entrySet()) {
-            if (entry.getValue() > 0 && ing.test(entry.getKey().getDefaultInstance())) {
-               int take = Math.min(needed, entry.getValue());
-               entry.setValue(entry.getValue() - take);
-               needed -= take;
-               if (needed <= 0) break;
+            if (entry.getValue() >= count && ing.test(entry.getKey().getDefaultInstance())) {
+               chosen = entry.getKey();
+               break;
             }
          }
-         if (needed > 0) return false;
+         if (chosen == null) return false;
+         tempPool.put(chosen, tempPool.get(chosen) - count);
       }
       return true;
    }

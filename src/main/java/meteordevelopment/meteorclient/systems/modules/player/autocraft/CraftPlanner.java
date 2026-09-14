@@ -179,7 +179,7 @@ public class CraftPlanner {
             }
          }
 
-         for (RecipeHolder<CraftingRecipe> cand : CraftRecipeHelper.getCandidateRecipes(item)) {
+         for (RecipeHolder<CraftingRecipe> cand : CraftRecipeHelper.getCandidateRecipes(item, virtualInv)) {
             if (!candidates.contains(cand)) {
                candidates.add(cand);
             }
@@ -289,8 +289,8 @@ public class CraftPlanner {
 
          if (needed > 0) {
             // Deficit: recursively plan and produce the needed matching ingredient in batch
-            Item rep = CraftRecipeHelper.getRepresentativeItem(gi.ingredient, false);
-            if (rep == null || rep == Items.AIR) {
+            List<Item> candidates = CraftRecipeHelper.getCandidateItemsForIngredient(gi.ingredient, false, virtualInv);
+            if (candidates.isEmpty()) {
                ItemStack[] matching = gi.ingredient.getItems();
                Item missingItem = (matching != null && matching.length > 0) ? matching[0].getItem() : item;
                missingRaw.put(missingItem, missingRaw.getOrDefault(missingItem, 0) + needed);
@@ -298,20 +298,67 @@ public class CraftPlanner {
                continue;
             }
 
-            boolean subSuccess = planItem(rep, needed, virtualInv, steps, missingRaw, activePath, depth + 1, null);
-            if (!subSuccess) {
-               allIngredientsSatisfied = false;
+            boolean candidateSatisfied = false;
+            Map<Item, Integer> bestCandidateInv = null;
+            List<CraftStep> bestCandidateSteps = null;
+            Map<Item, Integer> bestCandidateMissing = null;
+            int bestMissingScore = Integer.MAX_VALUE;
+            Item chosenRep = null;
+
+            for (Item cand : candidates) {
+               if (cand == null || cand == Items.AIR) continue;
+
+               Map<Item, Integer> snapInv = new HashMap<>(virtualInv);
+               List<CraftStep> snapSteps = new ArrayList<>(steps);
+               Map<Item, Integer> snapMissing = new LinkedHashMap<>(missingRaw);
+
+               boolean subSuccess = planItem(cand, needed, snapInv, snapSteps, snapMissing, activePath, depth + 1, null);
+
+               int repHave = snapInv.getOrDefault(cand, 0);
+               int repTake = Math.min(needed, repHave);
+               if (subSuccess && repTake >= needed && snapMissing.isEmpty()) {
+                  // Perfect satisfaction with zero missing materials!
+                  snapInv.put(cand, repHave - repTake);
+                  virtualInv.clear();
+                  virtualInv.putAll(snapInv);
+                  steps.clear();
+                  steps.addAll(snapSteps);
+                  missingRaw.clear();
+                  stepConsumed.put(cand, stepConsumed.getOrDefault(cand, 0) + repTake);
+                  candidateSatisfied = true;
+                  chosenRep = cand;
+                  break;
+               }
+
+               int score = 0;
+               for (int count : snapMissing.values()) score += count;
+               if (score < bestMissingScore) {
+                  bestMissingScore = score;
+                  bestCandidateInv = snapInv;
+                  bestCandidateSteps = snapSteps;
+                  bestCandidateMissing = snapMissing;
+                  chosenRep = cand;
+               }
             }
 
-            // Consume the produced item from virtual inventory
-            int repHave = virtualInv.getOrDefault(rep, 0);
-            int repTake = Math.min(needed, repHave);
-            if (repTake > 0) {
-               virtualInv.put(rep, repHave - repTake);
-               stepConsumed.put(rep, stepConsumed.getOrDefault(rep, 0) + repTake);
-            }
-            if (repTake < needed) {
+            if (!candidateSatisfied) {
                allIngredientsSatisfied = false;
+               if (bestCandidateInv != null) {
+                  virtualInv.clear();
+                  virtualInv.putAll(bestCandidateInv);
+                  steps.clear();
+                  steps.addAll(bestCandidateSteps);
+                  missingRaw.clear();
+                  missingRaw.putAll(bestCandidateMissing);
+                  if (chosenRep != null) {
+                     int repHave = virtualInv.getOrDefault(chosenRep, 0);
+                     int repTake = Math.min(needed, repHave);
+                     if (repTake > 0) {
+                        virtualInv.put(chosenRep, repHave - repTake);
+                        stepConsumed.put(chosenRep, stepConsumed.getOrDefault(chosenRep, 0) + repTake);
+                     }
+                  }
+               }
             }
          }
       }

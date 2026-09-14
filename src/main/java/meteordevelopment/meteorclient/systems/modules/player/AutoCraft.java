@@ -1509,6 +1509,9 @@ public class AutoCraft extends Module {
                if (s == targetSlot) continue;
                ItemStack stack = menu.getSlot(s).getItem();
                if (!stack.isEmpty() && ing.test(stack)) {
+                  if (menu.getSlot(targetSlot).hasItem() && !stack.is(menu.getSlot(targetSlot).getItem().getItem())) {
+                     continue;
+                  }
                   foundSource = s;
                   break;
                }
@@ -1620,6 +1623,9 @@ public class AutoCraft extends Module {
                if (s == targetSlot) continue;
                ItemStack stack = menu.getSlot(s).getItem();
                if (!stack.isEmpty() && ing.test(stack)) {
+                  if (menu.getSlot(targetSlot).hasItem() && !stack.is(menu.getSlot(targetSlot).getItem().getItem())) {
+                     continue;
+                  }
                   foundSource = s;
                   break;
                }
