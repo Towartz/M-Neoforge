@@ -41,6 +41,12 @@ public class CraftRecipeHelper {
    private static final Map<Ingredient, List<Item>> INGREDIENT_ITEMS_CACHE = new ConcurrentHashMap<>();
    private static boolean listenerRegistered = false;
 
+   public static final Set<Item> CANONICAL_DEFAULTS = Set.of(
+      Items.WHITE_WOOL, Items.WHITE_BED, Items.WHITE_CARPET,
+      Items.OAK_PLANKS, Items.OAK_LOG, Items.OAK_WOOD,
+      Items.GLASS, Items.TERRACOTTA, Items.CANDLE, Items.WHITE_CONCRETE_POWDER
+   );
+
    private CraftRecipeHelper() {
    }
 
@@ -186,6 +192,40 @@ public class CraftRecipeHelper {
       return nonEmpty == 1;
    }
 
+   public static boolean isRecoloringRecipe(RecipeHolder<CraftingRecipe> holder) {
+      if (holder == null || MeteorClient.mc.level == null) return false;
+      ItemStack resultStack = holder.value().getResultItem(MeteorClient.mc.level.registryAccess());
+      if (resultStack.isEmpty()) return false;
+      Item resultItem = resultStack.getItem();
+      ResourceLocation resId = BuiltInRegistries.ITEM.getKey(resultItem);
+      String resPath = resId.getPath();
+
+      String familySuffix = null;
+      if (resPath.endsWith("_wool")) familySuffix = "_wool";
+      else if (resPath.endsWith("_bed")) familySuffix = "_bed";
+      else if (resPath.endsWith("_carpet")) familySuffix = "_carpet";
+      else if (resPath.endsWith("_candle")) familySuffix = "_candle";
+      else if (resPath.endsWith("_stained_glass")) familySuffix = "glass";
+      else if (resPath.endsWith("_terracotta")) familySuffix = "terracotta";
+      else if (resPath.endsWith("_concrete_powder")) familySuffix = "concrete_powder";
+      else if (resPath.endsWith("_shulker_box")) familySuffix = "shulker_box";
+
+      if (familySuffix == null) return false;
+
+      for (Ingredient ing : holder.value().getIngredients()) {
+         if (ing.isEmpty()) continue;
+         for (Item inItem : getItemsForIngredient(ing)) {
+            ResourceLocation inId = BuiltInRegistries.ITEM.getKey(inItem);
+            String inPath = inId.getPath();
+            if (inPath.endsWith(familySuffix) || inPath.equals(familySuffix) || inPath.equals("candle") || inPath.equals("glass") || inPath.equals("terracotta")) {
+               return true;
+            }
+         }
+      }
+
+      return false;
+   }
+
    public static boolean isDecompressionRecipe(RecipeHolder<CraftingRecipe> holder) {
       if (holder == null) return false;
       int yield = getResultCount(holder);
@@ -201,11 +241,46 @@ public class CraftRecipeHelper {
    public static List<RecipeHolder<CraftingRecipe>> getCandidateRecipes(Item item, Map<Item, Integer> pool) {
       List<RecipeHolder<CraftingRecipe>> raw = getRecipesFor(item);
       if (raw.isEmpty()) return Collections.emptyList();
-      if (raw.size() == 1) return raw;
 
       Map<Item, Integer> workingPool = (pool != null) ? pool : getAvailableInventoryPool(false);
 
-      List<RecipeHolder<CraftingRecipe>> candidates = new ArrayList<>(raw);
+      List<RecipeHolder<CraftingRecipe>> candidates = new ArrayList<>();
+      for (RecipeHolder<CraftingRecipe> r : raw) {
+         // Rule 1: Decompression is ONLY considered if the source compressed block is already owned in pool!
+         if (isDecompressionRecipe(r)) {
+            Item src = getSingleIngredientItem(r);
+            if (src == null || workingPool.getOrDefault(src, 0) <= 0) {
+               continue;
+            }
+         }
+
+         // Rule 2: 1:1 conversions and recoloring/dyeing are ONLY considered if the player already owns an input item in pool!
+         if (is1to1Conversion(r) || isRecoloringRecipe(r)) {
+            boolean hasInputInPool = false;
+            for (Ingredient ing : r.value().getIngredients()) {
+               if (ing.isEmpty()) continue;
+               for (Item inIt : getItemsForIngredient(ing)) {
+                  if (workingPool.getOrDefault(inIt, 0) > 0) {
+                     hasInputInPool = true;
+                     break;
+                  }
+               }
+               if (hasInputInPool) break;
+            }
+            if (!hasInputInPool) {
+               continue;
+            }
+         }
+
+         candidates.add(r);
+      }
+
+      if (candidates.isEmpty()) {
+         return Collections.emptyList();
+      }
+
+      if (candidates.size() == 1) return candidates;
+
       Map<RecipeHolder<CraftingRecipe>, Integer> scores = new HashMap<>(candidates.size());
       for (RecipeHolder<CraftingRecipe> r : candidates) {
          scores.put(r, computeRecipePriorityScore(r, workingPool));
@@ -236,8 +311,12 @@ public class CraftRecipeHelper {
          // 2. Decompression with owned storage block
          Item src = getSingleIngredientItem(holder);
          int count = (src != null && pool != null) ? pool.getOrDefault(src, 0) : (src != null ? countInInventory(src) : 0);
-         if (isDecompressionRecipe(holder) && count > 0) {
-            score += 50000;
+         if (isDecompressionRecipe(holder)) {
+            if (count > 0) {
+               score += 50000;
+            } else {
+               return -100000;
+            }
          } else if (canSatisfy(holder, 1, true, pool)) {
             score += 30000;
          } else {
@@ -257,9 +336,9 @@ public class CraftRecipeHelper {
          }
       }
 
-      // 4. Heavily penalize 1:1 conversion recipes where player does NOT own input item
-      if (is1to1Conversion(holder) && !sat) {
-         score -= 50000;
+      // 4. Heavily penalize 1:1 conversion or recoloring recipes where player does NOT own input item
+      if ((is1to1Conversion(holder) || isRecoloringRecipe(holder)) && !sat) {
+         score -= 100000;
       }
 
       // 5. Cost-based selection: penalize total number of ingredients needed per unit of yield
@@ -477,35 +556,36 @@ public class CraftRecipeHelper {
       Map<Item, Integer> pool = new HashMap<>();
       if (MeteorClient.mc.player == null) return pool;
 
+      // 1. Always include the player's 36 inventory slots (hotbar + main inventory)
+      Inventory inv = MeteorClient.mc.player.getInventory();
+      for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
+         ItemStack stack = inv.getItem(i);
+         if (!stack.isEmpty()) {
+            pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+         }
+      }
+
+      // 2. Include items currently in active crafting grid slots
       AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
-      if (menu != null && !(menu instanceof InventoryMenu)) {
-         for (Slot slot : menu.slots) {
-            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
-               ItemStack stack = slot.getItem();
-               if (!stack.isEmpty()) {
-                  pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
-               }
-            }
-         }
-         if (menu instanceof CraftingMenu craftingMenu) {
-            for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
-               ItemStack stack = craftingMenu.slots.get(i).getItem();
-               if (!stack.isEmpty()) {
-                  pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
-               }
-            }
-         }
-      } else {
-         Inventory inv = MeteorClient.mc.player.getInventory();
-         for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
-            ItemStack stack = inv.getItem(i);
+      if (menu instanceof CraftingMenu craftingMenu) {
+         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+            ItemStack stack = craftingMenu.slots.get(i).getItem();
             if (!stack.isEmpty()) {
                pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
             }
          }
-         if (menu instanceof InventoryMenu invMenu) {
-            for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
-               ItemStack stack = invMenu.slots.get(i).getItem();
+      } else if (menu instanceof InventoryMenu invMenu) {
+         for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
+            ItemStack stack = invMenu.slots.get(i).getItem();
+            if (!stack.isEmpty()) {
+               pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
+            }
+         }
+      } else if (BackpackAdapter.isBackpackMenu(menu)) {
+         BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
+         if (info.valid && info.gridStart != -1 && info.gridEnd != -1) {
+            for (int i = info.gridStart; i <= info.gridEnd && i < menu.slots.size(); i++) {
+               ItemStack stack = menu.slots.get(i).getItem();
                if (!stack.isEmpty()) {
                   pool.put(stack.getItem(), pool.getOrDefault(stack.getItem(), 0) + stack.getCount());
                }
@@ -513,6 +593,7 @@ public class CraftRecipeHelper {
          }
       }
 
+      // 3. Include backpack storage items if not direct-only
       if (!directOnly) {
          for (ItemStack stack : BackpackAdapter.getAllBackpackItems()) {
             if (!stack.isEmpty()) {
@@ -583,45 +664,69 @@ public class CraftRecipeHelper {
       }
 
       // 4. Bounded single-level precursor check (e.g. Cherry Log in pool for Cherry Planks for Cherry Slab)
+      // STRICT REQUIREMENT: EVERY NON-EMPTY INGREDIENT IN THE RECIPE MUST BE SATISFIED!
       int recipesChecked = 0;
       for (RecipeHolder<CraftingRecipe> recipe : recipes) {
-         if (is1to1Conversion(recipe)) continue;
+         if (is1to1Conversion(recipe) || isRecoloringRecipe(recipe)) continue;
          recipesChecked++;
-         if (recipesChecked > 2) break;
+         if (recipesChecked > 3) break;
+
+         boolean allIngredientsSatisfied = true;
+         int matsCount = 0;
 
          for (Ingredient ing : recipe.value().getIngredients()) {
             if (ing.isEmpty()) continue;
-            List<Item> candidates = getItemsForIngredient(ing);
-            int candChecked = 0;
-            for (Item mItem : candidates) {
-               candChecked++;
-               if (candChecked > 3) break;
+            boolean ingSatisfied = false;
 
-               for (RecipeHolder<CraftingRecipe> subRec : getRecipesFor(mItem)) {
-                  if (is1to1Conversion(subRec)) continue;
-                  boolean subAllInPool = true;
-                  int subMatsCount = 0;
-                  for (Ingredient subIng : subRec.value().getIngredients()) {
-                     if (subIng.isEmpty()) continue;
-                     boolean subFound = false;
-                     for (Item subItem : getItemsForIngredient(subIng)) {
-                        int subCount = workingPool.getOrDefault(subItem, 0);
-                        if (subCount > 0) {
-                           subFound = true;
-                           subMatsCount += subCount;
-                           break;
-                        }
-                     }
-                     if (!subFound) {
-                        subAllInPool = false;
+            // Check A: Directly in working pool
+            for (Item mItem : getItemsForIngredient(ing)) {
+               int count = workingPool.getOrDefault(mItem, 0);
+               if (count > 0) {
+                  ingSatisfied = true;
+                  matsCount += count;
+                  break;
+               }
+            }
+
+            // Check B: Decompression from owned block in working pool
+            if (!ingSatisfied) {
+               for (Item mItem : getItemsForIngredient(ing)) {
+                  RecipeHolder<CraftingRecipe> subDecomp = findDecompressionRecipe(mItem, workingPool);
+                  if (subDecomp != null) {
+                     Item dSrc = getSingleIngredientItem(subDecomp);
+                     int dCount = (dSrc != null) ? workingPool.getOrDefault(dSrc, 0) : 0;
+                     if (dCount > 0) {
+                        ingSatisfied = true;
+                        matsCount += dCount;
                         break;
                      }
                   }
-                  if (subAllInPool && subMatsCount > 0) {
-                     return 1000 + subMatsCount;
-                  }
                }
             }
+
+            // Check C: Direct craftable via single-level precursor
+            if (!ingSatisfied) {
+               for (Item mItem : getItemsForIngredient(ing)) {
+                  for (RecipeHolder<CraftingRecipe> subRec : getRecipesFor(mItem)) {
+                     if (is1to1Conversion(subRec) || isRecoloringRecipe(subRec)) continue;
+                     if (canSatisfy(subRec, 1, false, workingPool)) {
+                        ingSatisfied = true;
+                        matsCount += 1;
+                        break;
+                     }
+                  }
+                  if (ingSatisfied) break;
+               }
+            }
+
+            if (!ingSatisfied) {
+               allIngredientsSatisfied = false;
+               break;
+            }
+         }
+
+         if (allIngredientsSatisfied && matsCount > 0) {
+            return 1000 + matsCount;
          }
       }
 
@@ -648,12 +753,22 @@ public class CraftRecipeHelper {
          if (scoreA != scoreB) {
             return Integer.compare(scoreB, scoreA); // descending
          }
-         // Deterministic tie-breaker: prefer vanilla "minecraft" items over mod items
+         // Tie-breaker 1: Canonical baseline items preferred over colored/mod variants
+         boolean canonA = CANONICAL_DEFAULTS.contains(a);
+         boolean canonB = CANONICAL_DEFAULTS.contains(b);
+         if (canonA != canonB) return canonA ? -1 : 1;
+
+         // Tie-breaker 2: Prefer vanilla "minecraft" items over mod items
          ResourceLocation idA = BuiltInRegistries.ITEM.getKey(a);
          ResourceLocation idB = BuiltInRegistries.ITEM.getKey(b);
          boolean mcA = idA.getNamespace().equals("minecraft");
          boolean mcB = idB.getNamespace().equals("minecraft");
          if (mcA != mcB) return mcA ? -1 : 1;
+
+         // Tie-breaker 3: Shorter path
+         if (idA.getPath().length() != idB.getPath().length()) {
+            return Integer.compare(idA.getPath().length(), idB.getPath().length());
+         }
          return idA.getPath().compareTo(idB.getPath());
       });
 
@@ -741,27 +856,8 @@ public class CraftRecipeHelper {
    public static int countInDirectInventory(Item item) {
       if (MeteorClient.mc.player == null || item == null) return 0;
       int count = 0;
-      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
-      if (menu != null && !(menu instanceof InventoryMenu)) {
-         for (Slot slot : menu.slots) {
-            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
-               ItemStack stack = slot.getItem();
-               if (stack.is(item)) {
-                  count += stack.getCount();
-               }
-            }
-         }
-         if (menu instanceof CraftingMenu craftingMenu) {
-            for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
-               ItemStack stack = craftingMenu.slots.get(i).getItem();
-               if (stack.is(item)) {
-                  count += stack.getCount();
-               }
-            }
-         }
-         return count;
-      }
 
+      // 1. Always count from player's 36 inventory slots (hotbar + main inventory)
       Inventory inv = MeteorClient.mc.player.getInventory();
       for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
          ItemStack stack = inv.getItem(i);
@@ -769,41 +865,43 @@ public class CraftRecipeHelper {
             count += stack.getCount();
          }
       }
-      if (menu instanceof InventoryMenu invMenu) {
+
+      // 2. Count from active crafting grid slots
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu instanceof CraftingMenu craftingMenu) {
+         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+            ItemStack stack = craftingMenu.slots.get(i).getItem();
+            if (stack.is(item)) {
+               count += stack.getCount();
+            }
+         }
+      } else if (menu instanceof InventoryMenu invMenu) {
          for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
             ItemStack stack = invMenu.slots.get(i).getItem();
             if (stack.is(item)) {
                count += stack.getCount();
             }
          }
+      } else if (BackpackAdapter.isBackpackMenu(menu)) {
+         BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
+         if (info.valid && info.gridStart != -1 && info.gridEnd != -1) {
+            for (int i = info.gridStart; i <= info.gridEnd && i < menu.slots.size(); i++) {
+               ItemStack stack = menu.slots.get(i).getItem();
+               if (stack.is(item)) {
+                  count += stack.getCount();
+               }
+            }
+         }
       }
+
       return count;
    }
 
    public static int countIngredientInDirectInventory(Ingredient ingredient) {
       if (MeteorClient.mc.player == null || ingredient == null || ingredient.isEmpty()) return 0;
       int count = 0;
-      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
-      if (menu != null && !(menu instanceof InventoryMenu)) {
-         for (Slot slot : menu.slots) {
-            if (slot.container instanceof Inventory && slot.getContainerSlot() < 36) {
-               ItemStack stack = slot.getItem();
-               if (ingredient.test(stack)) {
-                  count += stack.getCount();
-               }
-            }
-         }
-         if (menu instanceof CraftingMenu craftingMenu) {
-            for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
-               ItemStack stack = craftingMenu.slots.get(i).getItem();
-               if (ingredient.test(stack)) {
-                  count += stack.getCount();
-               }
-            }
-         }
-         return count;
-      }
 
+      // 1. Always count from player's 36 inventory slots (hotbar + main inventory)
       Inventory inv = MeteorClient.mc.player.getInventory();
       for (int i = 0; i < 36 && i < inv.getContainerSize(); i++) {
          ItemStack stack = inv.getItem(i);
@@ -811,14 +909,35 @@ public class CraftRecipeHelper {
             count += stack.getCount();
          }
       }
-      if (menu instanceof InventoryMenu invMenu) {
+
+      // 2. Count from active crafting grid slots
+      AbstractContainerMenu menu = MeteorClient.mc.player.containerMenu;
+      if (menu instanceof CraftingMenu craftingMenu) {
+         for (int i = 1; i <= 9 && i < craftingMenu.slots.size(); i++) {
+            ItemStack stack = craftingMenu.slots.get(i).getItem();
+            if (ingredient.test(stack)) {
+               count += stack.getCount();
+            }
+         }
+      } else if (menu instanceof InventoryMenu invMenu) {
          for (int i = 1; i <= 4 && i < invMenu.slots.size(); i++) {
             ItemStack stack = invMenu.slots.get(i).getItem();
             if (ingredient.test(stack)) {
                count += stack.getCount();
             }
          }
+      } else if (BackpackAdapter.isBackpackMenu(menu)) {
+         BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
+         if (info.valid && info.gridStart != -1 && info.gridEnd != -1) {
+            for (int i = info.gridStart; i <= info.gridEnd && i < menu.slots.size(); i++) {
+               ItemStack stack = menu.slots.get(i).getItem();
+               if (ingredient.test(stack)) {
+                  count += stack.getCount();
+               }
+            }
+         }
       }
+
       return count;
    }
 

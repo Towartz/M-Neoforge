@@ -232,6 +232,7 @@ public class AutoCraft extends Module {
    private final StateTimeoutGuard backpackOpenGuard = new StateTimeoutGuard(40, 2);
    private final StateTimeoutGuard chestNavGuard = new StateTimeoutGuard(120, 0);
    private final StateTimeoutGuard tableNavGuard = new StateTimeoutGuard(120, 0);
+   private boolean taskAborted = false;
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -320,6 +321,7 @@ public class AutoCraft extends Module {
 
    public void queueCraft(Item item, RecipeHolder<CraftingRecipe> preferredRecipe, int count) {
       if (item == null || count <= 0) return;
+      this.taskAborted = false;
       this.consecutiveExhaustions = 0;
       this.queue.add(new CraftTask(item, preferredRecipe, count));
       if (!this.isActive()) {
@@ -334,6 +336,7 @@ public class AutoCraft extends Module {
 
    public void queueBundle(List<Item> items, int count) {
       if (items == null || items.isEmpty()) return;
+      this.taskAborted = false;
       this.consecutiveExhaustions = 0;
       for (Item item : items) {
          this.queue.add(new CraftTask(item, count));
@@ -718,6 +721,7 @@ public class AutoCraft extends Module {
          }
          this.consecutiveExhaustions = 0;
          this.currentTask = null;
+         this.taskAborted = true;
          if (this.queue.isEmpty()) {
             this.state = State.CLEANUP;
          } else {
@@ -761,6 +765,7 @@ public class AutoCraft extends Module {
                }
                this.consecutiveExhaustions = 0;
                this.currentTask = null;
+               this.taskAborted = true;
                if (this.queue.isEmpty()) {
                   this.state = State.CLEANUP;
                } else {
@@ -787,6 +792,7 @@ public class AutoCraft extends Module {
       }
       this.consecutiveExhaustions = 0;
       this.currentTask = null;
+      this.taskAborted = true;
       if (this.queue.isEmpty()) {
          this.state = State.CLEANUP;
       } else {
@@ -1928,7 +1934,10 @@ public class AutoCraft extends Module {
       }
 
       if (this.queue.isEmpty() && this.currentTask == null) {
-         this.info("AutoCraft task complete!");
+         if (!this.taskAborted) {
+            this.info("AutoCraft task complete!");
+         }
+         this.taskAborted = false;
          this.state = State.IDLE;
          this.toggle();
       } else {

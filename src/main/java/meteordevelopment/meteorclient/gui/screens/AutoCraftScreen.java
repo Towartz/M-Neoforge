@@ -1,9 +1,11 @@
 package meteordevelopment.meteorclient.gui.screens;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.gui.GuiTheme;
@@ -220,7 +222,33 @@ public class AutoCraftScreen extends WindowTabScreen {
 
       String query = extractItemQuery(this.filterText);
       String modFilter = extractModFilter(this.filterText);
-      matched.sort((a, b) -> compareRelevance(a, b, query, modFilter));
+
+      Map<Item, Integer> pool = CraftRecipeHelper.getAvailableInventoryPool(false);
+      Map<Item, Integer> craftScoreMap = new HashMap<>(matched.size());
+      for (Item it : matched) {
+         craftScoreMap.put(it, CraftRecipeHelper.getCraftabilityScore(it, pool, false));
+      }
+
+      matched.sort((a, b) -> {
+         int scoreA = calculateRelevanceScore(a, query, modFilter);
+         int scoreB = calculateRelevanceScore(b, query, modFilter);
+         if (scoreA != scoreB) {
+            return Integer.compare(scoreA, scoreB);
+         }
+
+         int craftA = craftScoreMap.getOrDefault(a, 0);
+         int craftB = craftScoreMap.getOrDefault(b, 0);
+         boolean canCraftA = craftA > 0;
+         boolean canCraftB = craftB > 0;
+         if (canCraftA != canCraftB) {
+            return canCraftA ? -1 : 1;
+         }
+         if (canCraftA && craftA != craftB) {
+            return Integer.compare(craftB, craftA);
+         }
+
+         return compareRelevance(a, b, query, modFilter);
+      });
 
       int totalItems = matched.size();
       this.totalPages = Math.max(1, (int) Math.ceil((double) totalItems / ITEMS_PER_PAGE));
@@ -517,7 +545,7 @@ public class AutoCraftScreen extends WindowTabScreen {
          boolean canSatisfyIng = (haveCount >= reqCount || equivCount >= reqCount);
          if (!canSatisfyIng) {
             boolean producedInPlan = false;
-            if (plan != null && plan.steps != null) {
+            if (plan != null && plan.steps != null && plan.isSatisfied) {
                for (CraftPlanner.CraftStep step : plan.steps) {
                   if (step.resultItem == reqItem) {
                      producedInPlan = true;
@@ -540,8 +568,8 @@ public class AutoCraftScreen extends WindowTabScreen {
          matsTable.row();
       }
 
-      // Craft Tree & Base Materials (if intermediate steps exist)
-      if (plan != null && plan.steps.size() > 1) {
+      // Craft Tree & Base Materials (if intermediate steps exist and plan is satisfied)
+      if (plan != null && plan.isSatisfied && plan.steps.size() > 1) {
          this.detailsContainer.add(this.theme.horizontalSeparator()).expandX();
          this.detailsContainer.add(this.theme.label("Craft Tree (" + plan.steps.size() + " Steps):", true));
          WTable treeTable = this.detailsContainer.add(this.theme.table()).widget();

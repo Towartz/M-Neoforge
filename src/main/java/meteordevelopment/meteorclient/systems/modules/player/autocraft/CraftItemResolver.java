@@ -2,11 +2,14 @@ package meteordevelopment.meteorclient.systems.modules.player.autocraft;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 public class CraftItemResolver {
    private CraftItemResolver() {
@@ -31,8 +34,14 @@ public class CraftItemResolver {
          return BuiltInRegistries.ITEM.get(mcRl);
       }
 
-      // 3. Normalized string (spaces & hyphens to underscores)
+      // 3. Normalized string (spaces & hyphens to underscores, common colloquial aliases)
       String normalized = query.replace(" ", "_").replace("-", "_");
+      if (normalized.equals("workbench") || normalized.equals("table")) {
+         normalized = "crafting_table";
+      } else if (normalized.equals("torches")) {
+         normalized = "torch";
+      }
+
       ResourceLocation normRl = ResourceLocation.fromNamespaceAndPath("minecraft", normalized);
       if (BuiltInRegistries.ITEM.containsKey(normRl)) {
          return BuiltInRegistries.ITEM.get(normRl);
@@ -58,12 +67,51 @@ public class CraftItemResolver {
          }
       }
 
-      // 6. Contains substring match across all items
+      // 6. Dynamic search across all registered items (vanilla & mods),
+      // prioritizing current inventory craftability, word-token precision, namespace, and length.
+      Map<Item, Integer> pool = CraftRecipeHelper.getAvailableInventoryPool(false);
+      List<Item> matches = new ArrayList<>();
+      final String norm = normalized;
+
       for (Item item : BuiltInRegistries.ITEM) {
          ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
-         if (id.toString().contains(normalized) || id.getPath().contains(normalized)) {
-            return item;
+         String path = id.getPath().toLowerCase(Locale.ROOT);
+         if (path.contains(norm) || id.toString().toLowerCase(Locale.ROOT).contains(norm)) {
+            matches.add(item);
          }
+      }
+
+      if (!matches.isEmpty()) {
+         matches.sort((a, b) -> {
+            int craftA = CraftRecipeHelper.getCraftabilityScore(a, pool, false);
+            int craftB = CraftRecipeHelper.getCraftabilityScore(b, pool, false);
+            boolean canCraftA = craftA > 0;
+            boolean canCraftB = craftB > 0;
+            if (canCraftA != canCraftB) return canCraftA ? -1 : 1;
+            if (canCraftA && craftA != craftB) return Integer.compare(craftB, craftA);
+
+            ResourceLocation idA = BuiltInRegistries.ITEM.getKey(a);
+            ResourceLocation idB = BuiltInRegistries.ITEM.getKey(b);
+            String pathA = idA.getPath().toLowerCase(Locale.ROOT);
+            String pathB = idB.getPath().toLowerCase(Locale.ROOT);
+
+            // Word token match priority (e.g. "_bed" or "bed_" vs substring like "bedrock")
+            boolean wordA = pathA.equals(norm) || pathA.endsWith("_" + norm) || pathA.startsWith(norm + "_") || pathA.contains("_" + norm + "_");
+            boolean wordB = pathB.equals(norm) || pathB.endsWith("_" + norm) || pathB.startsWith(norm + "_") || pathB.contains("_" + norm + "_");
+            if (wordA != wordB) return wordA ? -1 : 1;
+
+            // Minecraft namespace priority
+            boolean mcA = idA.getNamespace().equals("minecraft");
+            boolean mcB = idB.getNamespace().equals("minecraft");
+            if (mcA != mcB) return mcA ? -1 : 1;
+
+            // Shorter path priority
+            if (pathA.length() != pathB.length()) {
+               return Integer.compare(pathA.length(), pathB.length());
+            }
+            return pathA.compareTo(pathB);
+         });
+         return matches.get(0);
       }
 
       return null;

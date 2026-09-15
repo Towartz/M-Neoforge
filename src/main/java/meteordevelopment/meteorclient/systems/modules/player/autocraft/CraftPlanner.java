@@ -223,13 +223,12 @@ public class CraftPlanner {
          }
 
          if (!anySatisfied) {
-            if (bestVirtualInv != null) {
-               virtualInv.clear();
-               virtualInv.putAll(bestVirtualInv);
-               steps.clear();
-               steps.addAll(bestSteps);
+            steps.clear();
+            if (bestMissingRaw != null && !bestMissingRaw.isEmpty()) {
                missingRaw.clear();
                missingRaw.putAll(bestMissingRaw);
+            } else {
+               missingRaw.put(item, missingRaw.getOrDefault(item, 0) + neededCount);
             }
             return false;
          }
@@ -314,8 +313,13 @@ public class CraftPlanner {
                   if (toTest.size() >= 2) break;
                }
             }
+
             if (toTest.isEmpty()) {
-               toTest.add(candidates.get(0));
+               Item rep = CraftRecipeHelper.getRepresentativeItem(gi.ingredient, false, virtualInv);
+               if (rep == null) rep = !matchingItems.isEmpty() ? matchingItems.get(0) : item;
+               missingRaw.put(rep, missingRaw.getOrDefault(rep, 0) + needed);
+               allIngredientsSatisfied = false;
+               continue;
             }
 
             for (Item cand : toTest) {
@@ -347,8 +351,6 @@ public class CraftPlanner {
                for (int count : snapMissing.values()) score += count;
                if (score < bestMissingScore) {
                   bestMissingScore = score;
-                  bestCandidateInv = snapInv;
-                  bestCandidateSteps = snapSteps;
                   bestCandidateMissing = snapMissing;
                   chosenRep = cand;
                }
@@ -356,24 +358,19 @@ public class CraftPlanner {
 
             if (!candidateSatisfied) {
                allIngredientsSatisfied = false;
-               if (bestCandidateInv != null) {
-                  virtualInv.clear();
-                  virtualInv.putAll(bestCandidateInv);
-                  steps.clear();
-                  steps.addAll(bestCandidateSteps);
-                  missingRaw.clear();
+               if (bestCandidateMissing != null && !bestCandidateMissing.isEmpty()) {
                   missingRaw.putAll(bestCandidateMissing);
-                  if (chosenRep != null) {
-                     int repHave = virtualInv.getOrDefault(chosenRep, 0);
-                     int repTake = Math.min(needed, repHave);
-                     if (repTake > 0) {
-                        virtualInv.put(chosenRep, repHave - repTake);
-                        stepConsumed.put(chosenRep, stepConsumed.getOrDefault(chosenRep, 0) + repTake);
-                     }
-                  }
+               } else {
+                  Item rep = (chosenRep != null) ? chosenRep : CraftRecipeHelper.getRepresentativeItem(gi.ingredient, false, virtualInv);
+                  if (rep == null) rep = !matchingItems.isEmpty() ? matchingItems.get(0) : item;
+                  missingRaw.put(rep, missingRaw.getOrDefault(rep, 0) + needed);
                }
             }
          }
+      }
+
+      if (!allIngredientsSatisfied) {
+         return false;
       }
 
       // 6. Add this step to the execution list
@@ -390,7 +387,7 @@ public class CraftPlanner {
          }
       }
 
-      return allIngredientsSatisfied;
+      return true;
    }
 
    private static List<CraftStep> optimizeSteps(List<CraftStep> steps) {
