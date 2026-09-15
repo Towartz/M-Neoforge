@@ -115,23 +115,13 @@ public class CraftPlanner {
    private static boolean areIngredientsEquivalent(Ingredient a, Ingredient b) {
       if (a == b) return true;
       if (a == null || b == null) return false;
-      ItemStack[] itemsA = a.getItems();
-      ItemStack[] itemsB = b.getItems();
-      if (itemsA == null || itemsB == null) return itemsA == itemsB;
-      if (itemsA.length != itemsB.length) return false;
-      if (itemsA.length == 0) return true;
-      if (itemsA.length == 1 && itemsB.length == 1) {
-         return itemsA[0].getItem() == itemsB[0].getItem();
-      }
-      Set<Item> setA = new HashSet<>();
-      for (ItemStack st : itemsA) {
-         if (st != null && !st.isEmpty()) setA.add(st.getItem());
-      }
-      Set<Item> setB = new HashSet<>();
-      for (ItemStack st : itemsB) {
-         if (st != null && !st.isEmpty()) setB.add(st.getItem());
-      }
-      return setA.equals(setB);
+      List<Item> listA = CraftRecipeHelper.getItemsForIngredient(a);
+      List<Item> listB = CraftRecipeHelper.getItemsForIngredient(b);
+      if (listA == listB) return true;
+      if (listA.size() != listB.size()) return false;
+      if (listA.isEmpty()) return true;
+      if (listA.size() == 1) return listA.get(0) == listB.get(0);
+      return listA.containsAll(listB) && listB.containsAll(listA);
    }
 
    private static boolean planItem(Item item, int neededCount, Map<Item, Integer> virtualInv, List<CraftStep> steps,
@@ -174,7 +164,7 @@ public class CraftPlanner {
          RecipeHolder<CraftingRecipe> decomp = CraftRecipeHelper.findDecompressionRecipe(item, virtualInv);
          if (decomp != null) {
             Item source = CraftRecipeHelper.getSingleIngredientItem(decomp);
-            if (source != null && virtualInv.getOrDefault(source, 0) > 0 && !candidates.contains(decomp)) {
+            if (source != null && virtualInv.getOrDefault(source, 0) > 0 && !activePath.contains(source) && !candidates.contains(decomp)) {
                candidates.add(decomp);
             }
          }
@@ -197,7 +187,13 @@ public class CraftPlanner {
          Map<Item, Integer> bestMissingRaw = null;
          int bestMissingScore = Integer.MAX_VALUE;
 
+         int testedCount = 0;
+         int maxToTest = (depth == 0) ? 3 : 2;
+
          for (RecipeHolder<CraftingRecipe> recipe : candidates) {
+            if (testedCount >= maxToTest) break;
+            testedCount++;
+
             Map<Item, Integer> snapInv = new HashMap<>(virtualInv);
             List<CraftStep> snapSteps = new ArrayList<>(steps);
             Map<Item, Integer> snapMissing = new LinkedHashMap<>(missingRaw);
@@ -277,8 +273,9 @@ public class CraftPlanner {
          int needed = totalNeeded;
 
          // Check if virtual inventory has an item matching this ingredient
+         List<Item> matchingItems = CraftRecipeHelper.getItemsForIngredient(gi.ingredient);
          for (Map.Entry<Item, Integer> entry : virtualInv.entrySet()) {
-            if (entry.getValue() > 0 && gi.ingredient.test(entry.getKey().getDefaultInstance())) {
+            if (entry.getValue() > 0 && matchingItems.contains(entry.getKey())) {
                int take = Math.min(needed, entry.getValue());
                entry.setValue(entry.getValue() - take);
                stepConsumed.put(entry.getKey(), stepConsumed.getOrDefault(entry.getKey(), 0) + take);
@@ -291,8 +288,7 @@ public class CraftPlanner {
             // Deficit: recursively plan and produce the needed matching ingredient in batch
             List<Item> candidates = CraftRecipeHelper.getCandidateItemsForIngredient(gi.ingredient, false, virtualInv);
             if (candidates.isEmpty()) {
-               ItemStack[] matching = gi.ingredient.getItems();
-               Item missingItem = (matching != null && matching.length > 0) ? matching[0].getItem() : item;
+               Item missingItem = !matchingItems.isEmpty() ? matchingItems.get(0) : item;
                missingRaw.put(missingItem, missingRaw.getOrDefault(missingItem, 0) + needed);
                allIngredientsSatisfied = false;
                continue;
@@ -323,7 +319,7 @@ public class CraftPlanner {
             }
 
             for (Item cand : toTest) {
-               if (cand == null || cand == Items.AIR) continue;
+               if (cand == null || cand == Items.AIR || activePath.contains(cand)) continue;
 
                Map<Item, Integer> snapInv = new HashMap<>(virtualInv);
                List<CraftStep> snapSteps = new ArrayList<>(steps);
@@ -385,6 +381,14 @@ public class CraftPlanner {
 
       // 7. Deposit all produced items into virtual inventory so caller can consume what it needs
       virtualInv.put(item, virtualInv.getOrDefault(item, 0) + totalProduced);
+
+      // 8. Credit byproducts / return items (e.g. empty buckets from milk, glass bottles from honey)
+      for (Map.Entry<Item, Integer> consumed : stepConsumed.entrySet()) {
+         Item remainder = CraftRecipeHelper.getCraftingRemainder(consumed.getKey());
+         if (remainder != null && remainder != Items.AIR) {
+            virtualInv.put(remainder, virtualInv.getOrDefault(remainder, 0) + consumed.getValue());
+         }
+      }
 
       return allIngredientsSatisfied;
    }

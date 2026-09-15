@@ -31,6 +31,7 @@ import meteordevelopment.meteorclient.systems.modules.player.autocraft.Container
 import meteordevelopment.meteorclient.systems.modules.player.autocraft.CraftItemResolver;
 import meteordevelopment.meteorclient.systems.modules.player.autocraft.CraftPlanner;
 import meteordevelopment.meteorclient.systems.modules.player.autocraft.CraftRecipeHelper;
+import meteordevelopment.meteorclient.systems.modules.player.autocraft.StateTimeoutGuard;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
@@ -70,7 +71,8 @@ public class AutoCraft extends Module {
       CRAFTING,
       WAITING_FOR_CRAFT_RESULT,
       SETTLING,
-      CLEANUP
+      CLEANUP,
+      FAILED
    }
 
    public enum GridPlaceResult {
@@ -143,6 +145,13 @@ public class AutoCraft extends Module {
          .name("close-when-done")
          .description("Close container and crafting screens when crafting completes.")
          .defaultValue(true)
+         .build()
+   );
+   private final Setting<Boolean> debugTrace = this.sgGeneral.add(
+      new BoolSetting.Builder()
+         .name("debug-trace")
+         .description("Log detailed step-by-step execution traces to chat.")
+         .defaultValue(false)
          .build()
    );
 
@@ -219,6 +228,10 @@ public class AutoCraft extends Module {
    private int lastResolvedRemaining = -1;
    private int resolutionAttempts = 0;
    private int backpackOpenRetries = 0;
+   private final StateTimeoutGuard tableOpenGuard = new StateTimeoutGuard(40, 2);
+   private final StateTimeoutGuard backpackOpenGuard = new StateTimeoutGuard(40, 2);
+   private final StateTimeoutGuard chestNavGuard = new StateTimeoutGuard(120, 0);
+   private final StateTimeoutGuard tableNavGuard = new StateTimeoutGuard(120, 0);
 
    public AutoCraft() {
       super(Categories.Player, "auto-craft", "Automatically crafts items with dynamic mod resolution and chest search.");
@@ -235,6 +248,21 @@ public class AutoCraft extends Module {
    }
 
    public void cancelTask() {
+      // Return any items lingering in the crafting grid to inventory and close container
+      if (this.mc.player != null && this.mc.player.containerMenu != null) {
+         AbstractContainerMenu menu = this.mc.player.containerMenu;
+         if (menu instanceof CraftingMenu) {
+            BackpackAdapter.clearGrid(menu, 1, 9);
+            this.mc.player.closeContainer();
+         } else if (BackpackAdapter.isBackpackMenu(menu)) {
+            BackpackAdapter.BackpackCraftInfo info = BackpackAdapter.getBackpackCraftInfo(menu);
+            if (info.valid && info.gridStart != -1 && info.gridEnd != -1) {
+               BackpackAdapter.clearGrid(menu, info.gridStart, info.gridEnd);
+            }
+            this.mc.player.closeContainer();
+         }
+      }
+
       this.queue.clear();
       this.currentTask = null;
       this.state = State.IDLE;
@@ -255,9 +283,22 @@ public class AutoCraft extends Module {
       this.lastResolvedItem = null;
       this.lastResolvedRemaining = -1;
       this.resolutionAttempts = 0;
+      this.tableOpenGuard.reset();
+      this.backpackOpenGuard.reset();
+      this.chestNavGuard.reset();
+      this.tableNavGuard.reset();
       clearPendingCraft();
       ContainerSearcher.stopNavigation();
       this.containerSearcher.reset();
+   }
+
+   public void failTask(String reason) {
+      this.error("AutoCraft failed: %s", reason);
+      this.state = State.FAILED;
+      this.cancelTask();
+      if (this.isActive()) {
+         this.toggle();
+      }
    }
 
    private void clearPendingCraft() {
@@ -404,18 +445,17 @@ public class AutoCraft extends Module {
          return;
       }
 
-      this.chestWaitTicks++;
+      this.backpackOpenGuard.tick();
 
       // Re-trigger open action periodically in case high ping / packet loss delayed it
-      if (this.chestWaitTicks % 20 == 0 && BackpackAdapter.hasPortableCraftingAvailable()) {
+      if (this.backpackOpenGuard.getTicks() % 20 == 0 && BackpackAdapter.hasPortableCraftingAvailable()) {
          BackpackAdapter.openPortableCrafting();
       }
 
-      if (this.chestWaitTicks > 80) {
-         this.chestWaitTicks = 0;
-         if (this.backpackOpenRetries < 2) {
-            this.backpackOpenRetries++;
-            this.info("Backpack open delayed by server ping, retrying (%d/2)...", this.backpackOpenRetries);
+      if (this.backpackOpenGuard.isTimedOut()) {
+         if (this.backpackOpenGuard.canRetry()) {
+            this.backpackOpenGuard.retry();
+            this.info("Backpack open delayed by server ping, retrying (%d/2)...", this.backpackOpenGuard.getRetries());
             if (BackpackAdapter.hasPortableCraftingAvailable()) {
                BackpackAdapter.openPortableCrafting();
             }
@@ -423,8 +463,8 @@ public class AutoCraft extends Module {
             return;
          }
 
-         this.backpackOpenRetries = 0;
-         this.warning("Backpack open timed out due to high ping. Continuing via table or inventory...");
+         this.backpackOpenGuard.reset();
+         this.warning("Backpack open timed out. Continuing via table or inventory...");
          if (this.activeRecipe != null && CraftRecipeHelper.canSatisfy(this.activeRecipe, 1)) {
             this.state = State.CRAFTING;
             return;
@@ -621,6 +661,12 @@ public class AutoCraft extends Module {
       this.activeRecipe = (this.currentTask.preferredRecipe != null)
          ? this.currentTask.preferredRecipe
          : CraftRecipeHelper.findBestRecipe(this.currentTask.item);
+
+      if (this.debugTrace.get()) {
+         this.info("[Trace] Resolving: %s (remaining: %d, recipe: %s).",
+            this.currentTask.item.getDescription().getString(), this.currentTask.remainingCount,
+            this.activeRecipe != null ? this.activeRecipe.id().toString() : "none");
+      }
 
       if (this.activeRecipe == null) {
          this.error("No crafting recipe found for (highlight)%s(default).", this.currentTask.item.getDescription().getString());
@@ -856,28 +902,28 @@ public class AutoCraft extends Module {
 
    private void handleNavigatingToChest() {
       if (this.targetChestPos == null) {
-         this.navWaitTicks = 0;
+         this.chestNavGuard.reset();
          this.state = State.RESOLVING;
          return;
       }
 
       if (ContainerSearcher.isWithinReach(this.targetChestPos)) {
          ContainerSearcher.stopNavigation();
+         this.chestNavGuard.reset();
          ContainerSearcher.openContainer(this.targetChestPos);
          this.state = State.LOOTING_CHEST;
          this.chestWaitTicks = 0;
-         this.navWaitTicks = 0;
          this.timer = this.craftDelay.get() + 2;
          return;
       }
 
-      this.navWaitTicks++;
-      if (this.navWaitTicks > 120) {
+      this.chestNavGuard.tick();
+      if (this.chestNavGuard.isTimedOut()) {
          this.warning("Chest at [%d, %d, %d] unreachable (timed out). Skipping...", this.targetChestPos.getX(), this.targetChestPos.getY(), this.targetChestPos.getZ());
          ContainerSearcher.stopNavigation();
          this.containerSearcher.markVisited(this.targetChestPos);
          this.targetChestPos = null;
-         this.navWaitTicks = 0;
+         this.chestNavGuard.reset();
          this.state = State.RESOLVING;
       }
    }
@@ -957,8 +1003,14 @@ public class AutoCraft extends Module {
          }
       }
 
-      if (placePos == null) {
+      if (placePos == null && this.mc.level.getBlockState(playerPos).canBeReplaced() && !this.mc.level.getBlockState(playerPos.below()).isAir()) {
          placePos = playerPos;
+      }
+
+      if (placePos == null) {
+         this.error("No valid ground position to place Crafting Table.");
+         this.cancelTask();
+         return;
       }
 
       if (!tableItem.isHotbar()) {
@@ -967,6 +1019,15 @@ public class AutoCraft extends Module {
       }
 
       if (tableItem.isHotbar()) {
+         ItemStack hotbarStack = this.mc.player.getInventory().getItem(tableItem.slot());
+         if (!hotbarStack.is(Items.CRAFTING_TABLE)) {
+            tableItem = InvUtils.findInHotbar(Items.CRAFTING_TABLE);
+            if (!tableItem.isHotbar()) {
+               this.error("Crafting Table not found in hotbar for placement.");
+               this.cancelTask();
+               return;
+            }
+         }
          BlockUtils.place(placePos, tableItem, true, 50, true, true);
          this.placedTablePos = placePos;
          this.tablePos = placePos;
@@ -980,43 +1041,73 @@ public class AutoCraft extends Module {
 
    private void handleNavigatingToTable() {
       if (this.tablePos == null) {
-         this.navWaitTicks = 0;
+         this.tableNavGuard.reset();
          this.state = State.RESOLVING;
          return;
       }
 
       if (ContainerSearcher.isWithinReach(this.tablePos)) {
          ContainerSearcher.stopNavigation();
-         this.navWaitTicks = 0;
+         this.tableNavGuard.reset();
+         if (this.mc.level != null && !this.mc.level.getBlockState(this.tablePos).is(Blocks.CRAFTING_TABLE)) {
+            this.warning("Crafting Table at %s was removed. Falling back to placement...", this.tablePos.toShortString());
+            this.tablePos = null;
+            this.state = State.CRAFTING_TABLE_PLACING;
+            return;
+         }
          this.state = State.OPENING_TABLE;
          return;
       }
 
-      this.navWaitTicks++;
-      if (this.navWaitTicks > 120) {
+      this.tableNavGuard.tick();
+      if (this.tableNavGuard.isTimedOut()) {
          this.warning("Crafting table unreachable (timed out). Falling back to placement...");
          ContainerSearcher.stopNavigation();
+         this.tableNavGuard.reset();
          this.tablePos = null;
-         this.navWaitTicks = 0;
          this.state = State.CRAFTING_TABLE_PLACING;
       }
    }
 
    private void handleOpeningTable() {
       if (this.tablePos == null) {
+         this.tableOpenGuard.reset();
          this.state = State.RESOLVING;
          return;
       }
 
+      // Barrier: wait until CraftingMenu is fully synced and open
       if (this.mc.player.containerMenu instanceof CraftingMenu) {
+         if (this.debugTrace.get()) {
+            this.info("[Trace] CraftingMenu confirmed open at %s.", this.tablePos.toShortString());
+         }
+         this.tableOpenGuard.reset();
          this.state = State.CRAFTING;
+         this.timer = this.craftDelay.get();
          return;
       }
 
-      BlockHitResult bhr = new BlockHitResult(Vec3.atCenterOf(this.tablePos), Direction.UP, this.tablePos, false);
-      BlockUtils.interact(bhr, InteractionHand.MAIN_HAND, true);
-      this.timer = this.craftDelay.get() + 2;
-      this.state = State.CRAFTING;
+      this.tableOpenGuard.tick();
+
+      if (this.tableOpenGuard.getTicks() == 1 || this.tableOpenGuard.getTicks() % 15 == 0) {
+         BlockHitResult bhr = new BlockHitResult(Vec3.atCenterOf(this.tablePos), Direction.UP, this.tablePos, false);
+         BlockUtils.interact(bhr, InteractionHand.MAIN_HAND, true);
+      }
+
+      if (this.tableOpenGuard.isTimedOut()) {
+         this.warning("Opening Crafting Table at %s timed out (40 ticks). Falling back...", this.tablePos.toShortString());
+         this.tableOpenGuard.reset();
+         this.tablePos = null;
+         if (this.autoCraftingTable.get()) {
+            this.state = State.CRAFTING_TABLE_PLACING;
+         } else {
+            this.state = State.RESOLVING;
+         }
+         this.timer = this.craftDelay.get() + 2;
+         return;
+      }
+
+      this.timer = 1;
    }
 
    private void handleCrafting() {
@@ -1268,6 +1359,11 @@ public class AutoCraft extends Module {
       // Place recipe into crafting grid via direct slot clicks with tableBatchCount items per slot
       GridPlaceResult placeRes = placeGridManually(menu, this.activeRecipe, table3x3, tableBatchCount);
 
+      if (this.debugTrace.get()) {
+         this.info("[Trace] Placed %dx batch into %s grid for %s (result: %s).",
+            tableBatchCount, table3x3 ? "3x3" : "2x2", this.currentTask.item.getDescription().getString(), placeRes);
+      }
+
       ItemStack afterPlace = menu.getSlot(0).getItem();
       if (!afterPlace.isEmpty() && afterPlace.is(this.currentTask.item)) {
          this.gridResultWaitTicks = 0;
@@ -1353,6 +1449,10 @@ public class AutoCraft extends Module {
          this.gridResultWaitTicks = 0;
          this.resolutionAttempts = 0;
          this.currentTask.remainingCount -= actuallyGained;
+         if (this.debugTrace.get()) {
+            this.info("[Trace] Craft confirmed: gained %dx %s (remaining: %d).",
+               actuallyGained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
+         }
          this.info("Crafted (highlight)%dx %s(default) (remaining: %d).",
             actuallyGained, this.pendingCraftItem.getDescription().getString(), Math.max(0, this.currentTask.remainingCount));
 
@@ -1819,7 +1919,11 @@ public class AutoCraft extends Module {
       }
 
       if (this.placedTablePos != null && this.breakPlacedTable.get()) {
-         this.mc.gameMode.startDestroyBlock(this.placedTablePos, Direction.UP);
+         if (this.mc.level != null && this.mc.level.getBlockState(this.placedTablePos).is(Blocks.CRAFTING_TABLE)) {
+            this.mc.gameMode.startDestroyBlock(this.placedTablePos, Direction.UP);
+         } else if (this.debugTrace.get()) {
+            this.info("[Trace] Placed crafting table at %s is no longer present, skipping destroy.", this.placedTablePos.toShortString());
+         }
          this.placedTablePos = null;
       }
 

@@ -254,15 +254,6 @@ public class AutoCraftScreen extends WindowTabScreen {
             updateDetails();
          };
 
-         // Compact Craftability Dot: fast check without creating full recursive dependency plan
-         RecipeHolder<CraftingRecipe> recipe = CraftRecipeHelper.findBestRecipe(item);
-         boolean canCraft = recipe != null && (CraftRecipeHelper.canSatisfy(recipe, 1, true) || CraftRecipeHelper.canSatisfyRecursive(recipe, 1, 1));
-         WLabel dot = this.itemTable.add(this.theme.label(canCraft ? " ●" : " ○")).widget();
-         if (canCraft) {
-            dot.color = new Color(50, 255, 50, 255);
-         } else {
-            dot.color = new Color(160, 160, 160, 180);
-         }
 
          this.itemTable.row();
       }
